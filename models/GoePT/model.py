@@ -165,7 +165,7 @@ class GoePT:
 
     def backward(self, x):
         # we can assume that train is on if we do backwards, so output of forward was:
-        # (B x Context T x Vocab_dim)  
+        # (B x Context T x Vocab_dim)
         # the input x is: grad of forward pass = loss * raw_grad
         # x is del L / del logits ??!?
         grad = self.lm_head.backward(x)
@@ -175,10 +175,18 @@ class GoePT:
         grad = self.transformer["drop"].backward(grad)
         self.transformer["wte"].backward(grad)
         self.transformer["wpe"].backward(grad)
-        raise NotImplementedError("Implement the nanoGPT backward path")
+        # raise NotImplementedError("Implement the nanoGPT backward path")
+        return
 
     def update(self):
-        raise NotImplementedError("Implement the nanoGPT update")
+        self.lm_head.update()
+        self.transformer["ln_f"].update()
+        for block in self.transformer["h"]:
+            block.update()
+        self.transformer["wte"].update()
+        self.transformer["wpe"].update()
+        return
+        # raise NotImplementedError("Implement the nanoGPT update")
 
     def state_dict(self):
 

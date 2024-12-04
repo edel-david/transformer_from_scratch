@@ -328,20 +328,20 @@ class LayerNorm:
         )  # upstream * centered * invvar
 
         # fuck this is hard
-        grad = grad @ self.weight.transpose(0, 1, 3, 2)  # add dims to transpose
-        grad = grad * self.stddev_inv.squeeze()
+        grad = grad * self.weight.transpose()  # add dims to transpose
+        grad = grad * self.stddev_inv  # .squeeze()
         # grad_out = grad.reshape((*grad.shape, 1)) * (
         #     -2 * np.power(self.x_centered, 2) * np.power(self.stddev_inv, 2)
         #     + (self.stddev_inv * (1 - self.normalized_shape[-1]))
         # )  # TODO: check
         #
-        grad_out = grad * (1 - 1 / input.shape[-1])
+        grad_out = grad * (1 - 1 / self.input.shape[-1])
 
         return grad_out
 
     def update(self):
-        self.weight -= self.lr * self.grad_weight
-        self.bias -= self.lr * self.grad_bias
+        self.weight -= self.lr * self.grad_weight.mean(axis=(0, 1))
+        self.bias -= self.lr * self.grad_bias.mean(axis=(0, 1))
         return
         # raise NotImplementedError("Implement the LayerNorm update routine")
 
@@ -424,7 +424,7 @@ class MLP:
     def backward(self, x: np.ndarray) -> np.ndarray:
         # raise NotImplementedError("Implement the MLP backward path")
         x = self.dropout.backward(x)
-        x = self.c_proj.backward(x)
+        x = self.c_proj.backward(x)  # error
         x = self.gelu.backward(x)
         x = self.c_fc.backward(x)
         return x
@@ -559,7 +559,9 @@ class MultiHeadAttention:
         return x, attn
 
     def backward(self, grad: ArrayLike) -> np.ndarray:
-        # grad: 16 x 256 x 384
+        # grad: 16 x 256 x ...
+
+        B, T, C = self.input.shape
         grad = self.resid_dropout.backward(grad)
         grad = self.c_proj.backward(grad)
         long_grad = grad.reshape(
@@ -578,7 +580,14 @@ class MultiHeadAttention:
         v_grad = self.attn @ grad.reshape(
             self.batch_size, self.n_heads, -1, self.depth
         )  #
-        grad = np.concat((q_grad, k_grad, v_grad), 3)
+        grad = np.concat(
+            (
+                q_grad.transpose(0, 2, 1, 3).reshape((B, T, C)),
+                k_grad.transpose(0, 2, 1, 3).reshape((B, T, C)),
+                v_grad.transpose(0, 2, 1, 3).reshape((B, T, C)),
+            ),
+            2,
+        )
         down = self.c_attn.backward(grad)
         return down
 
@@ -664,7 +673,7 @@ class Embedding:
 
     def update(self):
         self.weight[self.input.astype(np.int32), :] += (
-            -self.lr * self.grad_weight
+            -self.lr * self.grad_weight.mean(axis=0)  # average over batch size
         )  # idk
         return
         # raise NotImplementedError("Implement the Embedding update")
