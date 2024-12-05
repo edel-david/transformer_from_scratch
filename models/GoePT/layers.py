@@ -253,7 +253,6 @@ class Dropout:
         return input * self.mask
 
     def backward(self, grad):
-        # raise NotImplementedError("Implement the Dropout backward path")
         grad_out = grad * self.mask  # mask includes the scale!
         return grad_out
 

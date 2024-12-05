@@ -176,7 +176,6 @@ class GoePT:
         grad = self.transformer["drop"].backward(grad)
         self.transformer["wte"].backward(grad)
         self.transformer["wpe"].backward(grad)
-        # raise NotImplementedError("Implement the nanoGPT backward path")
         return
 
     def update(self):
@@ -187,8 +186,6 @@ class GoePT:
         self.transformer["wte"].update()
         self.transformer["wpe"].update()
         return
-        # raise NotImplementedError("Implement the nanoGPT update")
-
     def state_dict(self):
 
         params_all = {
@@ -304,7 +301,7 @@ def main():
     cp.random.seed(args.seed)
 
     model = GoePT(batch_size=args.batch_size, lr=args.lr)
-
+    ic(model)
     # state_dict = model.state_dict()
     # with open(os.path.join(args.checkpoint_dir, 'test_checkpoint.json'), mode='w', encoding='utf-8') as out_file:
     #     json.dump(state_dict, out_file)
@@ -550,5 +547,5 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     tokenizer:Tokenizer = Tokenizer.from_file(args.tokenizer)
-    main()
-    #main_infer()
+    #main()
+    main_infer()
