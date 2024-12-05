@@ -7,7 +7,7 @@ from functools import partial
 import json
 import cupy as cp
 import numpy as np
-
+import wandb
 
 from tokenizers import Tokenizer
 from rich.progress import Progress
@@ -290,7 +290,18 @@ def compute_gradient(target, prediction, one_hot_lookup):
 
 def main():
     # Training settings
-    
+    wandb.init(
+      # Set the project where this run will be logged
+      project="tfs", 
+      # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
+      name=f"tfs{args.lr}_gpu", 
+      # Track hyperparameters and run metadata
+      config={
+      "learning_rate": args.lr,
+      "architecture": "transformer",
+      "dataset": "goethe",
+      "epochs": args.epochs,
+      })
 
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
@@ -353,7 +364,7 @@ def main():
                 logits, loss = model.forward(X, Y)
                 loss = loss / args.gradient_accumulation_steps
                 # scale the loss to account for gradient accumulation
-
+                wandb.log({"train_loss":loss})
                 # Get raw gradient
                 raw_grad = compute_gradient(Y, logits, one_hot_lookup)
 
@@ -397,6 +408,7 @@ def main():
                     losses_dataset[split] = losses.mean()
                 loss_val = losses_dataset["val"]
                 progress_step.console.print(f"Iter: {iter_num} {loss_val}, vs {best_val_loss}")
+                wandb.log({"val_loss":loss_val})
                 if losses_dataset["val"] < best_val_loss:
 
                     status_update_string = f'Val loss decreased from {best_val_loss:.4f} to {losses_dataset["val"]:.4f}'
@@ -547,5 +559,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     tokenizer:Tokenizer = Tokenizer.from_file(args.tokenizer)
-    #main()
-    main_infer()
+    
+    wandb.login()
+    main()
+    #main_infer()
