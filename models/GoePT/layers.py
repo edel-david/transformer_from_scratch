@@ -313,7 +313,7 @@ class LayerNorm:
 
         mean = np.mean(input, axis=self.axis, keepdims=True)
         var = np.var(
-            input, axis=self.axis, keepdims=True, mean=mean
+            input, axis=self.axis, keepdims=True, # mean=mean
         )  # can we pass the mean to the var()?  YES (with newer numpy versions)!
         # the var stays the same after centering. Usefull for gradient calculation (not really)
         self.x_centered = input - mean
@@ -435,7 +435,6 @@ class MLP:
         self.c_proj.update()
         self.c_fc.update()
         return
-        # raise NotImplementedError("Implement the MLP update")
 
     def get_params(self) -> dict:
         return {
@@ -533,7 +532,6 @@ class MultiHeadAttention:
 
         # this works because we use reduced dimensionalality with mutlihead attention,
         # making it similar in complexity to single attention.
-        #
 
         self.k = k
         self.q = q

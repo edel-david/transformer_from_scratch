@@ -455,11 +455,6 @@ def main():
 
                     losses_dataset[split] = losses.mean()
                 loss_val = losses_dataset["val"]
-                print("HElLO!!!!!!!")
-                print("HElLO!!!!!!!")
-                progress_step.console.print(f"Iter: {iter_num} {loss_val}, vs {best_val_loss}")
-                progress_step.console.print(f"Iter: {iter_num} {loss_val}, vs {best_val_loss}")
-                progress_step.console.print(f"Iter: {iter_num} {loss_val}, vs {best_val_loss}")
                 progress_step.console.print(f"Iter: {iter_num} {loss_val}, vs {best_val_loss}")
                 if losses_dataset["val"] < best_val_loss:
 
