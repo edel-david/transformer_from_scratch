@@ -198,6 +198,7 @@ class Sigmoid:
             grad_output * np.exp(-self.input) / np.power(1.0 + np.exp(-self.input), 2)
         )
         return grad_input
+        # TODO: check if not simpler and correct
 
 
 class Softmax:
@@ -220,6 +221,7 @@ class Softmax:
         f_x = self.output
         grad = (grad - (grad * f_x).sum(self.axis, keepdims=True)) * f_x
         return grad
+        # TODO : check
 
 
 class Dropout:
@@ -424,7 +426,7 @@ class MLP:
     def backward(self, x: np.ndarray) -> np.ndarray:
         # raise NotImplementedError("Implement the MLP backward path")
         x = self.dropout.backward(x)
-        x = self.c_proj.backward(x)  # error
+        x = self.c_proj.backward(x)
         x = self.gelu.backward(x)
         x = self.c_fc.backward(x)
         return x
@@ -592,7 +594,8 @@ class MultiHeadAttention:
         return down
 
     def update(self) -> None:
-        pass
+        self.c_proj.update()
+        self.c_attn.update()
         return
         # raise NotImplementedError("Implement the MultiHeadAttention update")
 
@@ -676,7 +679,6 @@ class Embedding:
             -self.lr * self.grad_weight.mean(axis=0)  # average over batch size
         )  # idk
         return
-        # raise NotImplementedError("Implement the Embedding update")
 
 
 class Block:

@@ -401,8 +401,6 @@ def main():
             progress_step.console.print(f"Starting epoch: {iter_num+1}")
             status.update(f"[bold green]Training epoch {iter_num+1} ...")
 
-            X, Y = get_batch("train")
-
             task_id = progress_step.add_task("Training")
 
             for micro_step in progress_step.track(
@@ -410,7 +408,7 @@ def main():
                 total=args.gradient_accumulation_steps,
                 task_id=task_id,
             ):
-
+                X, Y = get_batch("train")
                 logits, loss = model.forward(X, Y)
                 loss = loss / args.gradient_accumulation_steps
                 # scale the loss to account for gradient accumulation
@@ -456,7 +454,13 @@ def main():
                     progress_step.remove_task(task_id)
 
                     losses_dataset[split] = losses.mean()
-
+                loss_val = losses_dataset["val"]
+                print("HElLO!!!!!!!")
+                print("HElLO!!!!!!!")
+                progress_step.console.print(f"Iter: {iter_num} {loss_val}, vs {best_val_loss}")
+                progress_step.console.print(f"Iter: {iter_num} {loss_val}, vs {best_val_loss}")
+                progress_step.console.print(f"Iter: {iter_num} {loss_val}, vs {best_val_loss}")
+                progress_step.console.print(f"Iter: {iter_num} {loss_val}, vs {best_val_loss}")
                 if losses_dataset["val"] < best_val_loss:
 
                     status_update_string = f'Val loss decreased from {best_val_loss:.4f} to {losses_dataset["val"]:.4f}'
