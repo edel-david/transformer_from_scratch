@@ -459,7 +459,7 @@ def main():
                 if losses_dataset["val"] < best_val_loss:
 
                     status_update_string = f'Val loss decreased from {best_val_loss:.4f} to {losses_dataset["val"]:.4f}'
-
+                    progress_step.console.print(status_update_string)
                     if iter_num > 0:
                         status_update_string += ". Saving checkpoint..."
 
