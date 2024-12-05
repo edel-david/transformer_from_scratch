@@ -52,18 +52,18 @@ class GoePT:
         self.dropout = dropout
         self.lr = lr
 
-        self.rng = np.random.default_rng()
+        self.rng = cp.random.default_rng()
 
         def weight_init(size):
-            return self.rng.normal(size=size, loc=0.0, scale=0.02).astype(np.float32)
+            return cp.random.normal(size=size, loc=0.0, scale=0.02).astype(cp.float32)
 
         def c_proj_weight_init(size):
-            return self.rng.normal(
+            return cp.random.normal(
                 size=size, loc=0.0, scale=0.02 / math.sqrt(2 * self.n_layer)
-            ).astype(np.float32)
+            ).astype(cp.float32)
 
         def bias_init(size):
-            return np.zeros(shape=size, dtype=np.float32)
+            return cp.zeros(shape=size, dtype=cp.float32)
 
         # Define lm_head first so we can pass its
         # weights_transposed property to the wte
@@ -129,7 +129,7 @@ class GoePT:
         assert (
             t <= self.context_length
         ), f"Cannot forward sequence of length {t}, block size is only {self.context_length}"
-        pos = np.arange(0, t, dtype=np.int64)  # shape (t)
+        pos = cp.arange(0, t, dtype=cp.int64)  # shape (t)
 
         # Forward the GPT model itself
         # Token embeddings of shape (b, t, n_embd)
@@ -151,7 +151,7 @@ class GoePT:
 
             ic(logits.shape, targets.shape)
             logits_for_loss = logits.reshape(-1, logits.shape[-1])
-            targets_for_loss = np.expand_dims(targets.reshape(-1), 1)
+            targets_for_loss = cp.expand_dims(targets.reshape(-1), 1)
             targets_for_loss = scr.one_hot(targets_for_loss, 8192)
 
             loss = cross_entropy_loss(logits_for_loss, targets_for_loss)
@@ -257,20 +257,22 @@ class GoePT:
 
         return goe_pt
 
-
+import mmap
 def read_datasets(split, data_dir, context_length, batch_size, rng):
-    # We recreate np.memmap every batch to avoid a memory leak, as per
+    # We recreate cp.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
 
     if split == "train":
-        data = np.memmap(os.path.join(data_dir, "train.bin"), dtype=np.uint16, mode="r")
+        # old numpy
+        data_mem = np.memmap(os.path.join(data_dir, "train.bin"), dtype=cp.uint16, mode="r")
+        data = cp.asarray(data_mem)
     else:
-        data = np.memmap(os.path.join(data_dir, "val.bin"), dtype=np.uint16, mode="r")
-
+        data_mem = np.memmap(os.path.join(data_dir, "val.bin"), dtype=cp.uint16, mode="r")
+        data = cp.asarray(data_mem)
     ix = rng.integers(len(data) - context_length, size=(batch_size,))
 
-    x = np.stack([(data[i : i + context_length].astype(np.int64)) for i in ix])
-    y = np.stack([(data[i + 1 : i + 1 + context_length].astype(np.int64)) for i in ix])
+    x = cp.stack([(data[i : i + context_length].astype(cp.int64)) for i in ix])
+    y = cp.stack([(data[i + 1 : i + 1 + context_length].astype(cp.int64)) for i in ix])
 
     return x, y
 
@@ -280,7 +282,7 @@ def compute_gradient(target, prediction, one_hot_lookup):
     ic(prediction.shape)
     ic(target.shape)
 
-    target = np.stack([one_hot_lookup[token] for token in target])
+    target = cp.stack([one_hot_lookup[token] for token in target])
 
     ic(target.shape)
 
@@ -299,7 +301,7 @@ def main():
 
     ic(tokenizer)
 
-    np.random.seed(args.seed)
+    cp.random.seed(args.seed)
 
     model = GoePT(batch_size=args.batch_size, lr=args.lr)
 
@@ -314,7 +316,7 @@ def main():
 
     # training loop
 
-    rng = np.random.default_rng()
+    rng = cp.random.default_rng()
 
     get_batch = partial(
         read_datasets,
@@ -326,7 +328,7 @@ def main():
 
     # Pre-generate one-hot vectors using the vocab size
     # for gradient computation
-    one_hot_lookup = np.eye(8192)
+    one_hot_lookup = cp.eye(8192)
 
     t0 = time.time()
 
@@ -375,7 +377,7 @@ def main():
                 losses_dataset = {}
 
                 for split in ["train", "val"]:
-                    losses = np.zeros(args.eval_iters)
+                    losses = cp.zeros(args.eval_iters)
 
                     task_id = progress_step.add_task(
                         f"{split.capitalize()} loss evaluation"
@@ -448,12 +450,12 @@ def main():
                 break
 
 def softmax(arr):
-    expo = np.exp(arr)
+    expo = cp.exp(arr)
     expo = expo / expo.sum()
     return expo
 
 def main_infer():
-    np.random.seed(args.seed)
+    cp.random.seed(args.seed)
     checkpoint_filename = 'goe_pt_iter_11.json'
     with open(os.path.join(args.checkpoint_dir,checkpoint_filename ), mode='r', encoding='utf-8') as in_file:
         state_dict = json.load(in_file)
@@ -461,20 +463,20 @@ def main_infer():
     ic(checkpoint_filename)
     ic(model_loaded)
     text = "Senkt die"
-    non_padded_tokenized =np.array(tokenizer.encode(text).ids)
-    tokenized = np.full((256,),2)
+    non_padded_tokenized =cp.array(tokenizer.encode(text).ids)
+    tokenized = cp.full((256,),2)
     tokenized[-non_padded_tokenized.shape[0]:]=non_padded_tokenized
     tokenized=tokenized.reshape((1,-1))
 
     while tokenized[(0,0)]== 2: # shape.0 is batch (1) and shape.1 is context_length
         logits , _= model_loaded.forward(tokenized,)
         probabilities = softmax(logits.squeeze())
-        chosen_token = np.random.choice(np.arange(probabilities.shape[0]),size=1,p=probabilities.squeeze())
-        new_token = tokenizer.decode(chosen_token)
+        chosen_token = cp.random.choice(cp.arange(probabilities.shape[0]),size=1,p=probabilities.squeeze())
+        new_token = tokenizer.decode((chosen_token.item(),))
         text+=new_token
         print(text)
-        non_padded_tokenized = np.array(tokenizer.encode(text).ids)
-        tokenized = np.full((256,),2)
+        non_padded_tokenized = cp.array(tokenizer.encode(text).ids)
+        tokenized = cp.full((256,),2)
         tokenized[-non_padded_tokenized.shape[0]:]=non_padded_tokenized
         tokenized=tokenized.reshape((1,-1))
 if __name__ == "__main__":
@@ -547,6 +549,6 @@ if __name__ == "__main__":
 
 
     args = parser.parse_args()
-    #main()
     tokenizer:Tokenizer = Tokenizer.from_file(args.tokenizer)
-    main_infer()
+    main()
+    #main_infer()

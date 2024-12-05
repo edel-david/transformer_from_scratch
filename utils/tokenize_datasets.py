@@ -69,7 +69,7 @@ if __name__ == "__main__":
 
             # exit()
 
-            data_tokenized = np.array(data_tokenized.ids, dtype=np.uint16)
+            data_tokenized = cp.array(data_tokenized.ids, dtype=cp.uint16)
 
             ic(data_tokenized[:100])
 

@@ -17,6 +17,7 @@ from typing import Union, Callable
 
 
 import numpy as np
+import cupy as cp
 from numpy.typing import ArrayLike
 from icecream import ic
 
@@ -47,42 +48,42 @@ class Linear:
         self.bias_init_func = bias_init_func
 
         if self.weight_init_func:
-            self.weight = np.asanyarray(
+            self.weight = cp.asanyarray(
                 self.weight_init_func((in_features, out_features))
             )
         else:
-            self.weight = np.random.normal(size=(in_features, out_features)) * np.sqrt(
+            self.weight = cp.random.normal(size=(in_features, out_features)) * cp.sqrt(
                 1.0 / in_features
             )
 
         if self.bias_init_func:
-            self.bias = np.asanyarray(self.bias_init_func((in_features, out_features)))
+            self.bias = cp.asanyarray(self.bias_init_func((in_features, out_features)))
         else:
-            self.weight = np.random.normal(size=(in_features, out_features)) * np.sqrt(
+            self.weight = cp.random.normal(size=(in_features, out_features)) * cp.sqrt(
                 1.0 / in_features
             )
 
         if self.use_bias:
             if self.bias_init_func:
-                self.bias = np.asanyarray(self.bias_init_func((out_features,)))
+                self.bias = cp.asanyarray(self.bias_init_func((out_features,)))
             else:
-                self.bias = np.random.normal(size=(out_features,)) * np.sqrt(
+                self.bias = cp.random.normal(size=(out_features,)) * cp.sqrt(
                     1.0 / in_features
                 )
 
-        self.grad_weight = np.zeros((in_features, out_features))
-        self.grad_bias = np.zeros(out_features)
+        self.grad_weight = cp.zeros((in_features, out_features))
+        self.grad_bias = cp.zeros(out_features)
 
-        self.input = np.zeros((batch_size, in_features))
+        self.input = cp.zeros((batch_size, in_features))
 
     def _multi_dim_matmul(
         self,
-        mat_a: np.ndarray,
-        mat_b: np.ndarray,
+        mat_a: cp.ndarray,
+        mat_b: cp.ndarray,
         transpose_a: bool = False,
         transpose_b: bool = False,
         reshape_output: bool = True,
-    ) -> np.ndarray:
+    ) -> cp.ndarray:
         """
         Replicate torch behavior of flattening all but the
         last dimension of an input of the matrix multiplication
@@ -99,13 +100,13 @@ class Linear:
             dims_internal_mat_a = (
                 mat_a.shape
                 if len(mat_a.shape) <= 2
-                else (np.prod(mat_a.shape[:-1]), mat_a.shape[-1])
+                else (cp.prod(cp.array(mat_a.shape[:-1])).item(), mat_a.shape[-1])
             )
 
             dims_internal_mat_b = (
                 mat_b.shape
                 if len(mat_b.shape) <= 2
-                else (np.prod(mat_b.shape[:-1]), mat_b.shape[-1])
+                else (cp.prod(cp.array(mat_b.shape[:-1])).item(), mat_b.shape[-1])
             )
 
             mat_a_shape = mat_a.shape[::-1] if transpose_a else mat_a.shape
@@ -133,31 +134,31 @@ class Linear:
                 else:
                     return mat_b.reshape(dims_internal_mat_b)
 
-            return np.matmul(mat_a_transform(), mat_b_transform()).reshape(dims_out)
+            return cp.matmul(mat_a_transform(), mat_b_transform()).reshape(dims_out)
 
         else:
-            return np.matmul(mat_a, mat_b.T) if transpose_b else np.matmul(mat_a, mat_b)
+            return cp.matmul(mat_a, mat_b.T) if transpose_b else cp.matmul(mat_a, mat_b)
 
-    def forward(self, input: ArrayLike) -> np.ndarray:
+    def forward(self, input: ArrayLike) -> cp.ndarray:
 
-        self.input = np.asanyarray(input)
+        self.input = cp.asanyarray(input)
 
         output = self._multi_dim_matmul(self.input, self.weight)
         if self.use_bias:
             output += self.bias
         return output
 
-    def backward(self, grad_output: ArrayLike) -> np.ndarray:
+    def backward(self, grad_output: ArrayLike) -> cp.ndarray:
 
-        grad_output = np.asanyarray(grad_output)
+        grad_output = cp.asanyarray(grad_output)
 
         grad_input = self._multi_dim_matmul(grad_output, self.weight, transpose_b=True)
 
-        flattened_input_shape = (np.prod(self.input.shape[:-1]), self.input.shape[-1])
-        flattened_grad_output_shape = (
-            np.prod(grad_output.shape[:-1]),
-            grad_output.shape[-1],
-        )
+        # flattened_input_shape = (cp.prod(self.input.shape[:-1]), self.input.shape[-1])
+        # flattened_grad_output_shape = (
+        #     cp.prod(grad_output.shape[:-1]),
+        #     grad_output.shape[-1],
+        # )
 
         self.grad_weight = (1.0 / self.batch_size) * self._multi_dim_matmul(
             self.input, grad_output, transpose_a=True, reshape_output=False
@@ -185,17 +186,17 @@ class Linear:
 class Sigmoid:
     def __init__(self, in_features: int, batch_size: int):
         super(Sigmoid, self).__init__()
-        self.input = np.zeros(batch_size)
+        self.input = cp.zeros(batch_size)
 
     def forward(self, input):
-        input = np.asanyarray(input)
+        input = cp.asanyarray(input)
         self.input = input
-        return 1.0 / (1.0 + np.exp(-input))
+        return 1.0 / (1.0 + cp.exp(-input))
 
     def backward(self, grad_output):
-        grad_output = np.asanyarray(grad_output)
+        grad_output = cp.asanyarray(grad_output)
         grad_input = (
-            grad_output * np.exp(-self.input) / np.power(1.0 + np.exp(-self.input), 2)
+            grad_output * cp.exp(-self.input) / cp.power(1.0 + cp.exp(-self.input), 2)
         )
         return grad_input
         # TODO: check if not simpler and correct
@@ -208,16 +209,16 @@ class Softmax:
         self.axis = axis
 
     def forward(self, input: ArrayLike):
-        self.input = np.asanyarray(input)
-        shifted_inp = input - np.max(input, axis=self.axis, keepdims=True)
-        exp_res = np.exp(shifted_inp)
-        output = exp_res / np.sum(exp_res, axis=self.axis, keepdims=True)
+        self.input = cp.asanyarray(input)
+        shifted_inp = input - cp.max(input, axis=self.axis, keepdims=True)
+        exp_res = cp.exp(shifted_inp)
+        output = exp_res / cp.sum(exp_res, axis=self.axis, keepdims=True)
         self.output = output
         return output
 
     def backward(self, grad: ArrayLike):
         # not part of task, included in template
-        grad = np.asanyarray(grad)
+        grad = cp.asanyarray(grad)
         f_x = self.output
         grad = (grad - (grad * f_x).sum(self.axis, keepdims=True)) * f_x
         return grad
@@ -230,14 +231,14 @@ class Dropout:
         self.p = p
         self.scale = 1 / (1 - p)
 
-        self.rng = np.random.default_rng()
+        self.rng = cp.random.default_rng()
 
         self.mask = None
         self.input = None
 
-    def forward(self, input: ArrayLike, train: bool = False) -> np.ndarray:
+    def forward(self, input: ArrayLike, train: bool = False) -> cp.ndarray:
 
-        input = np.asanyarray(input)
+        input = cp.asanyarray(input)
 
         self.input = input
 
@@ -258,7 +259,7 @@ class Dropout:
 
 
 def one_hot(a, num_classes):
-    return np.squeeze(np.eye(num_classes)[a.reshape(-1)])
+    return cp.squeeze(cp.eye(num_classes)[a.reshape(-1)])
 
 
 class LayerNorm:
@@ -284,13 +285,13 @@ class LayerNorm:
         self.bias_init_func = bias_init_func
 
         if self.weight_init_func:
-            self.weight = np.asanyarray(self.weight_init_func((normalized_shape)))
+            self.weight = cp.asanyarray(self.weight_init_func((normalized_shape)))
         else:
-            self.weight = np.ones((normalized_shape), dtype=np.float32)
+            self.weight = cp.ones((normalized_shape), dtype=cp.float32)
         if self.bias_init_func:
-            self.bias = np.asanyarray(self.bias_init_func((normalized_shape)))
+            self.bias = cp.asanyarray(self.bias_init_func((normalized_shape)))
         else:
-            self.bias = np.zeros((normalized_shape), dtype=np.float32)
+            self.bias = cp.zeros((normalized_shape), dtype=cp.float32)
 
         self.axis = None
 
@@ -302,28 +303,28 @@ class LayerNorm:
         self.x_centered = None
         self.stddev_inv = None
 
-    def forward(self, input: ArrayLike) -> np.ndarray:
+    def forward(self, input: ArrayLike) -> cp.ndarray:
 
-        input = np.asanyarray(input)
+        input = cp.asanyarray(input)
 
         self.input = input
 
         self.axis = tuple(range(-len(self.normalized_shape), 0))
         #  -n,..., -2 , -1 ohne 0
 
-        mean = np.mean(input, axis=self.axis, keepdims=True)
-        var = np.var(
+        mean = cp.mean(input, axis=self.axis, keepdims=True)
+        var = cp.var(
             input, axis=self.axis, keepdims=True, # mean=mean
         )  # can we pass the mean to the var()?  YES (with newer numpy versions)!
         # the var stays the same after centering. Usefull for gradient calculation (not really)
         self.x_centered = input - mean
-        self.stddev_inv = 1 / np.sqrt(var + self.eps)
+        self.stddev_inv = 1 / cp.sqrt(var + self.eps)
 
         output = self.x_centered * self.stddev_inv
 
         return self.weight * output + self.bias
 
-    def backward(self, grad: ArrayLike) -> np.ndarray:
+    def backward(self, grad: ArrayLike) -> cp.ndarray:
         self.grad_bias = grad  # upstream gradient * 1.
         self.grad_weight = (
             grad * self.x_centered * self.stddev_inv
@@ -333,7 +334,7 @@ class LayerNorm:
         grad = grad * self.weight.transpose()  # add dims to transpose
         grad = grad * self.stddev_inv  # .squeeze()
         # grad_out = grad.reshape((*grad.shape, 1)) * (
-        #     -2 * np.power(self.x_centered, 2) * np.power(self.stddev_inv, 2)
+        #     -2 * cp.power(self.x_centered, 2) * cp.power(self.stddev_inv, 2)
         #     + (self.stddev_inv * (1 - self.normalized_shape[-1]))
         # )  # TODO: check
         #
@@ -350,29 +351,29 @@ class LayerNorm:
 
 class GELU:
     def __init__(self) -> None:
-        self._sqrt_of_2_by_pi = np.sqrt(2 / np.pi)
+        self._sqrt_of_2_by_pi = cp.sqrt(2 / cp.pi)
         self.input = None
 
-    def forward(self, input: ArrayLike) -> np.ndarray:
-        self.input = np.asanyarray(input)
+    def forward(self, input: ArrayLike) -> cp.ndarray:
+        self.input = cp.asanyarray(input)
         return (
             0.5
             * input
             * (
                 1
-                + np.tanh(
-                    self._sqrt_of_2_by_pi * (input + 0.044715 * np.power(input, 3))
+                + cp.tanh(
+                    self._sqrt_of_2_by_pi * (input + 0.044715 * cp.power(input, 3))
                 )
             )
         )
 
-    def backward(self, grad_output: ArrayLike) -> np.ndarray:
+    def backward(self, grad_output: ArrayLike) -> cp.ndarray:
         # raise NotImplementedError("Implement the GELU backward path")
         x = self.input
         m1 = self._sqrt_of_2_by_pi
         m2 = 0.044715
         m3 = m1 * (x + m2 * x**3)
-        tanhm3 = np.tanh(m3)
+        tanhm3 = cp.tanh(m3)
         first = 0.5 * (1 + tanhm3)
         second = x / 2 * (1 - tanhm3**2) * (m1 + 2 * x**2 * m2 * m1)
         grad_out = (first + second) * grad_output
@@ -416,14 +417,14 @@ class MLP:
 
         self.dropout = Dropout(dropout)
 
-    def forward(self, x: np.ndarray) -> np.ndarray:
+    def forward(self, x: cp.ndarray) -> cp.ndarray:
         x = self.c_fc.forward(x)
         x = self.gelu.forward(x)
         x = self.c_proj.forward(x)
         x = self.dropout.forward(x)
         return x
 
-    def backward(self, x: np.ndarray) -> np.ndarray:
+    def backward(self, x: cp.ndarray) -> cp.ndarray:
         # raise NotImplementedError("Implement the MLP backward path")
         x = self.dropout.backward(x)
         x = self.c_proj.backward(x)
@@ -502,8 +503,8 @@ class MultiHeadAttention:
             bias_init_func=bias_init_func,
         )
 
-        self.mask = np.tril(
-            np.ones((context_size, context_size), dtype=np.float32)
+        self.mask = cp.tril(
+            cp.ones((context_size, context_size), dtype=cp.float32)
         ).reshape(1, 1, context_size, context_size)
 
         self.input = None
@@ -514,11 +515,11 @@ class MultiHeadAttention:
 
     def forward(self, input: ArrayLike) -> tuple:
 
-        self.input = np.asanyarray(input)
+        self.input = cp.asanyarray(input)
 
         B, T, C = self.input.shape
 
-        q, k, v = np.split(self.c_attn.forward(self.input), 3, axis=2)
+        q, k, v = cp.split(self.c_attn.forward(self.input), 3, axis=2)
 
         k = k.reshape((B, T, self.n_heads, C // self.n_heads)).transpose(
             0, 2, 1, 3
@@ -540,7 +541,7 @@ class MultiHeadAttention:
         attn = (q @ k.transpose(0, 1, 3, 2)) * (1.0 / math.sqrt(k.shape[-1]))
         # k.shape[-1] == C // self.n_heads == multi_head_attention_head_dim == depth
 
-        attn = np.where(self.mask == 0, -1e9, attn)
+        attn = cp.where(self.mask == 0, -1e9, attn)
         attn = self.softmax_attn.forward(attn)
         attn = self.attn_dropout.forward(attn)
 
@@ -549,7 +550,7 @@ class MultiHeadAttention:
         x = attn @ v  # x: 16 x 6 x 256 x 64
 
         x = (
-            np.ascontiguousarray(x)
+            cp.ascontiguousarray(x)
             .transpose(0, 2, 1, 3)
             .reshape(B, -1, self.n_heads * self.depth)
         )
@@ -558,7 +559,7 @@ class MultiHeadAttention:
 
         return x, attn
 
-    def backward(self, grad: ArrayLike) -> np.ndarray:
+    def backward(self, grad: ArrayLike) -> cp.ndarray:
         # grad: 16 x 256 x ...
 
         B, T, C = self.input.shape
@@ -574,13 +575,13 @@ class MultiHeadAttention:
         long_grad = self.attn_dropout.backward(long_grad)
         long_grad = self.softmax_attn.backward(long_grad)
         long_grad = long_grad * self.mask
-        long_grad = long_grad * (1 / np.sqrt(self.depth))
+        long_grad = long_grad * (1 / cp.sqrt(self.depth))
         q_grad = long_grad @ self.k  # insert dimensions swaps
         k_grad = long_grad @ self.q  #
         v_grad = self.attn @ grad.reshape(
             self.batch_size, self.n_heads, -1, self.depth
         )  #
-        grad = np.concat(
+        grad = cp.concatenate(
             (
                 q_grad.transpose(0, 2, 1, 3).reshape((B, T, C)),
                 k_grad.transpose(0, 2, 1, 3).reshape((B, T, C)),
@@ -627,7 +628,7 @@ class Embedding:
         weight_external=None,
     ):
 
-        self.rng = np.random.default_rng()
+        self.rng = cp.random.default_rng()
 
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
@@ -646,34 +647,34 @@ class Embedding:
         # ??? TODO: check if correct
         if not isinstance(type(weight_external), NoneType):
             if self.init_func:
-                self.weight = np.asanyarray(
+                self.weight = cp.asanyarray(
                     self.init_func((num_embeddings, embedding_dim))
                 )
             else:
                 self.weight = self.rng.standard_normal(
-                    (num_embeddings, embedding_dim), dtype=np.float32
+                    (num_embeddings, embedding_dim), dtype=cp.float32
                 )
 
         else:
             self.weight = weight_external
 
-        self.gradient_projection_mask = np.eye(num_embeddings, dtype=np.uint8)
+        self.gradient_projection_mask = cp.eye(num_embeddings, dtype=cp.uint8)
 
         self.input = None
         self.grad_weight = None
 
-    def forward(self, input: ArrayLike) -> np.ndarray:
-        self.input = np.asanyarray(input)
-        return self.weight[self.input.astype(np.int32), :]
+    def forward(self, input: ArrayLike) -> cp.ndarray:
+        self.input = cp.asanyarray(input)
+        return self.weight[self.input.astype(cp.int32), :]
 
-    def backward(self, grad_output: ArrayLike) -> np.ndarray:
+    def backward(self, grad_output: ArrayLike) -> cp.ndarray:
         # this will probably be ones in the row the weight was pulled from multiplied with the upstream grad
         self.grad_weight = grad_output
         return
         # raise NotImplementedError("Implement the Embedding backward path")
 
     def update(self):
-        self.weight[self.input.astype(np.int32), :] += (
+        self.weight[self.input.astype(cp.int32), :] += (
             -self.lr * self.grad_weight.mean(axis=0)  # average over batch size
         )  # idk
         return
@@ -726,9 +727,9 @@ class Block:
             bias_init_func=bias_init_func,
         )
 
-    def forward(self, input: ArrayLike) -> np.ndarray:
+    def forward(self, input: ArrayLike) -> cp.ndarray:
 
-        input = np.asanyarray(input)
+        input = cp.asanyarray(input)
 
         x = self.ln_1.forward(input)
         x = self.attn.forward(x)[0]  # attn.forward returns (x, attn)
@@ -745,7 +746,7 @@ class Block:
 
         return x
 
-    def backward(self, grad_output: ArrayLike) -> np.ndarray:
+    def backward(self, grad_output: ArrayLike) -> cp.ndarray:
         x = self.mlp.backward(grad_output)  # x is no m in notes
         x = self.ln_2.backward(x)  # x is del L / del r
         x += grad_output  # add skip connection
