@@ -551,7 +551,7 @@ class MultiHeadAttention:
         x = (
             np.ascontiguousarray(x)
             .transpose(0, 2, 1, 3)
-            .reshape(self.batch_size, -1, self.n_heads * self.depth)
+            .reshape(B, -1, self.n_heads * self.depth)
         )
         x = self.c_proj.forward(x)  # keeps dims
         x = self.resid_dropout.forward(x)

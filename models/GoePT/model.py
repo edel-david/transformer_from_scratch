@@ -5,8 +5,9 @@ import time
 import argparse
 from functools import partial
 import json
-
+import cupy as cp
 import numpy as np
+
 
 from tokenizers import Tokenizer
 from rich.progress import Progress
@@ -286,70 +287,11 @@ def compute_gradient(target, prediction, one_hot_lookup):
     return prediction - target
 
 
+
+
 def main():
     # Training settings
-    parser = argparse.ArgumentParser(description="NanoGPT from scratch")
-    parser.add_argument(
-        "--data-dir", type=str, default="datasets/tokenized/", help="Dataset directory"
-    )
-    parser.add_argument(
-        "--checkpoint-dir",
-        type=str,
-        default="checkpoints/",
-        help="Checkpoint directory",
-    )
-    parser.add_argument(
-        "--vocab-file",
-        type=str,
-        default="models/tokenizers/goe_pt/goe_pt_tokenizer.json",
-        help="Vocabulary file",
-    )
-
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=16,
-        metavar="N",
-        help="input batch size for training (default: 16)",
-    )
-    parser.add_argument("--context-length", type=int, default=256)
-    parser.add_argument(
-        "--epochs",
-        type=int,
-        default=14,
-        metavar="N",
-        help="number of epochs to train (default: 14)",
-    )
-    parser.add_argument(
-        "--gradient-accumulation-steps", type=int, default=32, metavar="N"
-    )
-    parser.add_argument("--eval-iters", type=int, default=200, metavar="N")
-    parser.add_argument(
-        "--lr",
-        type=float,
-        default=0.1,
-        metavar="LR",
-        help="learning rate (default: 0.1)",
-    )
-    parser.add_argument(
-        "--seed", type=int, default=1, metavar="S", help="random seed (default: 1)"
-    )
-    parser.add_argument(
-        "--log-interval",
-        type=int,
-        default=100,
-        metavar="N",
-        help="how many batches to wait before logging training status",
-    )
-    parser.add_argument(
-        "--eval-interval",
-        type=int,
-        default=100,
-        metavar="N",
-        help="how many batches to wait before logging training status",
-    )
-
-    args = parser.parse_args()
+    
 
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
@@ -505,6 +447,106 @@ def main():
             if iter_num > args.epochs:
                 break
 
+def softmax(arr):
+    expo = np.exp(arr)
+    expo = expo / expo.sum()
+    return expo
 
+def main_infer():
+    np.random.seed(args.seed)
+    checkpoint_filename = 'goe_pt_iter_11.json'
+    with open(os.path.join(args.checkpoint_dir,checkpoint_filename ), mode='r', encoding='utf-8') as in_file:
+        state_dict = json.load(in_file)
+    model_loaded = GoePT.from_state_dict(state_dict)
+    ic(checkpoint_filename)
+    ic(model_loaded)
+    text = "Senkt die"
+    non_padded_tokenized =np.array(tokenizer.encode(text).ids)
+    tokenized = np.full((256,),2)
+    tokenized[-non_padded_tokenized.shape[0]:]=non_padded_tokenized
+    tokenized=tokenized.reshape((1,-1))
+
+    while tokenized[(0,0)]== 2: # shape.0 is batch (1) and shape.1 is context_length
+        logits , _= model_loaded.forward(tokenized,)
+        probabilities = softmax(logits.squeeze())
+        chosen_token = np.random.choice(np.arange(probabilities.shape[0]),size=1,p=probabilities.squeeze())
+        new_token = tokenizer.decode(chosen_token)
+        text+=new_token
+        print(text)
+        non_padded_tokenized = np.array(tokenizer.encode(text).ids)
+        tokenized = np.full((256,),2)
+        tokenized[-non_padded_tokenized.shape[0]:]=non_padded_tokenized
+        tokenized=tokenized.reshape((1,-1))
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="NanoGPT from scratch")
+    parser.add_argument(
+        "--data-dir", type=str, default="datasets/tokenized/", help="Dataset directory"
+    )
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=str,
+        default="checkpoints/",
+        help="Checkpoint directory",
+    )
+    parser.add_argument(
+        "--vocab-file",
+        type=str,
+        default="models/tokenizers/goe_pt/goe_pt_tokenizer.json",
+        help="Vocabulary file",
+    )
+
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=16,
+        metavar="N",
+        help="input batch size for training (default: 16)",
+    )
+    parser.add_argument("--context-length", type=int, default=256)
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=14,
+        metavar="N",
+        help="number of epochs to train (default: 14)",
+    )
+    parser.add_argument(
+        "--gradient-accumulation-steps", type=int, default=32, metavar="N"
+    )
+    parser.add_argument("--eval-iters", type=int, default=200, metavar="N")
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=0.1,
+        metavar="LR",
+        help="learning rate (default: 0.1)",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=1, metavar="S", help="random seed (default: 1)"
+    )
+    parser.add_argument(
+        "--log-interval",
+        type=int,
+        default=100,
+        metavar="N",
+        help="how many batches to wait before logging training status",
+    )
+    parser.add_argument(
+        "--eval-interval",
+        type=int,
+        default=100,
+        metavar="N",
+        help="how many batches to wait before logging training status",
+    )
+
+    parser.add_argument(
+        "--tokenizer",
+        type=str,
+        default="./models/tokenizers/goe_pt/" "goe_pt_tokenizer.json",
+    )
+
+
+    args = parser.parse_args()
+    #main()
+    tokenizer:Tokenizer = Tokenizer.from_file(args.tokenizer)
+    main_infer()
