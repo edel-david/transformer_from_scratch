@@ -194,12 +194,12 @@ class Sigmoid:
         return 1.0 / (1.0 + cp.exp(-input))
 
     def backward(self, grad_output):
+        # part of template
         grad_output = cp.asanyarray(grad_output)
         grad_input = (
             grad_output * cp.exp(-self.input) / cp.power(1.0 + cp.exp(-self.input), 2)
         )
         return grad_input
-        # TODO: check if not simpler and correct
 
 
 class Softmax:
@@ -222,7 +222,6 @@ class Softmax:
         f_x = self.output
         grad = (grad - (grad * f_x).sum(self.axis, keepdims=True)) * f_x
         return grad
-        # TODO : check
 
 
 class Dropout:
@@ -313,7 +312,9 @@ class LayerNorm:
 
         mean = cp.mean(input, axis=self.axis, keepdims=True)
         var = cp.var(
-            input, axis=self.axis, keepdims=True, # mean=mean
+            input,
+            axis=self.axis,
+            keepdims=True,  # mean=mean
         )  # can we pass the mean to the var()?  YES (with newer numpy versions)!
         # the var stays the same after centering. Usefull for gradient calculation (not really)
         self.x_centered = input - mean
@@ -322,25 +323,28 @@ class LayerNorm:
         output = self.x_centered * self.stddev_inv
 
         return self.weight * output + self.bias
+
     def backward(self, grad: ArrayLike) -> cp.ndarray:
-        B,T,C = self.input.shape
+        B, T, C = self.input.shape
         self.grad_bias = grad.mean(axis=(0, 1))  # upstream gradient * 1.
-        self.grad_weight = (
-            grad * (self.x_centered * self.stddev_inv)
-        ).mean(axis=(0, 1))  # upstream * centered * invvar
+        self.grad_weight = (grad * (self.x_centered * self.stddev_inv)).mean(
+            axis=(0, 1)
+        )  # upstream * centered * invvar
 
         normalized = self.x_centered * self.stddev_inv
         grad_normalized = grad * self.weight
-        grad_x = grad_normalized - grad_normalized.mean(-1,keepdims=True) - normalized * (grad_normalized *normalized).mean(-1,keepdims=True)
+        grad_x = (
+            grad_normalized
+            - grad_normalized.mean(-1, keepdims=True)
+            - normalized * (grad_normalized * normalized).mean(-1, keepdims=True)
+        )
         grad_x = grad_x * self.stddev_inv
         return grad_x
-
 
     def update(self):
         self.weight -= self.lr * self.grad_weight
         self.bias -= self.lr * self.grad_bias
         return
-        # raise NotImplementedError("Implement the LayerNorm update routine")
 
 
 class GELU:
@@ -419,7 +423,6 @@ class MLP:
         return x
 
     def backward(self, x: cp.ndarray) -> cp.ndarray:
-        # raise NotImplementedError("Implement the MLP backward path")
         x = self.dropout.backward(x)
         x = self.c_proj.backward(x)
         x = self.gelu.backward(x)
@@ -663,15 +666,18 @@ class Embedding:
 
     def backward(self, grad_output: ArrayLike) -> cp.ndarray:
         # this will probably be ones in the row the weight was pulled from multiplied with the upstream grad
-        self.grad_weight = grad_output
+        self.grad_weight.fill(0)
+        for inp, grad in zip(self.input, grad_output):
+            self.grad_weight[inp] += grad
         return
         # raise NotImplementedError("Implement the Embedding backward path")
 
     def update(self):
-        self.weight[self.input.astype(cp.int32), :] += (
-            -self.lr * self.grad_weight.mean(axis=0)  # average over batch size
-        )  # idk
-        return
+        unique_indices = cp.unique(self.input)  # Unique indices to avoid redundant updates
+        for inp in unique_indices:
+            # Average gradients for a specific row across all occurrences
+            row_grads = self.grad_weight[inp]
+            self.weight[inp] -= self.lr * row_grads
 
 
 class Block:

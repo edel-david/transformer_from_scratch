@@ -7,6 +7,7 @@ from functools import partial
 import json
 import cupy as cp
 import numpy as np
+
 # import wandb
 
 from tokenizers import Tokenizer
@@ -186,6 +187,7 @@ class GoePT:
         self.transformer["wte"].update()
         self.transformer["wpe"].update()
         return
+
     def state_dict(self):
 
         params_all = {
@@ -254,17 +256,24 @@ class GoePT:
 
         return goe_pt
 
+
 import mmap
+
+
 def read_datasets(split, data_dir, context_length, batch_size, rng):
     # We recreate cp.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
 
     if split == "train":
         # old numpy
-        data_mem = np.memmap(os.path.join(data_dir, "train.bin"), dtype=cp.uint16, mode="r")
+        data_mem = np.memmap(
+            os.path.join(data_dir, "train.bin"), dtype=cp.uint16, mode="r"
+        )
         data = cp.asarray(data_mem)
     else:
-        data_mem = np.memmap(os.path.join(data_dir, "val.bin"), dtype=cp.uint16, mode="r")
+        data_mem = np.memmap(
+            os.path.join(data_dir, "val.bin"), dtype=cp.uint16, mode="r"
+        )
         data = cp.asarray(data_mem)
     ix = rng.integers(len(data) - context_length, size=(batch_size,))
 
@@ -286,15 +295,13 @@ def compute_gradient(target, prediction, one_hot_lookup):
     return prediction - target
 
 
-
-
 def main():
     # Training settings
     # wandb.init(
     #   # Set the project where this run will be logged
-    #   project="tfs", 
+    #   project="tfs",
     #   # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
-    #   name=f"tfs{args.lr}_gpu", 
+    #   name=f"tfs{args.lr}_gpu",
     #   # Track hyperparameters and run metadata
     #   config={
     #   "learning_rate": args.lr,
@@ -407,7 +414,9 @@ def main():
 
                     losses_dataset[split] = losses.mean()
                 loss_val = losses_dataset["val"]
-                progress_step.console.print(f"Iter: {iter_num} {loss_val}, vs {best_val_loss}")
+                progress_step.console.print(
+                    f"Iter: {iter_num} {loss_val}, vs {best_val_loss}"
+                )
                 # wandb.log({"val_loss":loss_val})
                 if losses_dataset["val"] < best_val_loss:
 
@@ -458,36 +467,48 @@ def main():
             if iter_num > args.epochs:
                 break
 
+
 def softmax(arr):
     expo = cp.exp(arr)
     expo = expo / expo.sum()
     return expo
 
+
 def main_infer():
     cp.random.seed(args.seed)
-    checkpoint_filename = 'goe_pt_iter_11.json'
-    with open(os.path.join(args.checkpoint_dir,checkpoint_filename ), mode='r', encoding='utf-8') as in_file:
+    checkpoint_filename = "goe_pt_iter_11.json"
+    with open(
+        os.path.join(args.checkpoint_dir, checkpoint_filename),
+        mode="r",
+        encoding="utf-8",
+    ) as in_file:
         state_dict = json.load(in_file)
     model_loaded = GoePT.from_state_dict(state_dict)
     ic(checkpoint_filename)
     ic(model_loaded)
     text = "Senkt die"
-    non_padded_tokenized =cp.array(tokenizer.encode(text).ids)
-    tokenized = cp.full((256,),2)
-    tokenized[-non_padded_tokenized.shape[0]:]=non_padded_tokenized
-    tokenized=tokenized.reshape((1,-1))
+    non_padded_tokenized = cp.array(tokenizer.encode(text).ids)
+    tokenized = cp.full((256,), 2)
+    tokenized[-non_padded_tokenized.shape[0] :] = non_padded_tokenized
+    tokenized = tokenized.reshape((1, -1))
 
-    while tokenized[(0,0)]== 2: # shape.0 is batch (1) and shape.1 is context_length
-        logits , _= model_loaded.forward(tokenized,)
+    while tokenized[(0, 0)] == 2:  # shape.0 is batch (1) and shape.1 is context_length
+        logits, _ = model_loaded.forward(
+            tokenized,
+        )
         probabilities = softmax(logits.squeeze())
-        chosen_token = cp.random.choice(cp.arange(probabilities.shape[0]),size=1,p=probabilities.squeeze())
+        chosen_token = cp.random.choice(
+            cp.arange(probabilities.shape[0]), size=1, p=probabilities.squeeze()
+        )
         new_token = tokenizer.decode((chosen_token.item(),))
-        text+=new_token
+        text += new_token
         print(text)
         non_padded_tokenized = cp.array(tokenizer.encode(text).ids)
-        tokenized = cp.full((256,),2)
-        tokenized[-non_padded_tokenized.shape[0]:]=non_padded_tokenized
-        tokenized=tokenized.reshape((1,-1))
+        tokenized = cp.full((256,), 2)
+        tokenized[-non_padded_tokenized.shape[0] :] = non_padded_tokenized
+        tokenized = tokenized.reshape((1, -1))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NanoGPT from scratch")
     parser.add_argument(
@@ -556,10 +577,9 @@ if __name__ == "__main__":
         default="./models/tokenizers/goe_pt/" "goe_pt_tokenizer.json",
     )
 
-
     args = parser.parse_args()
-    tokenizer:Tokenizer = Tokenizer.from_file(args.tokenizer)
-    
+    tokenizer: Tokenizer = Tokenizer.from_file(args.tokenizer)
+
     # wandb.login()
     main()
-    #main_infer()
+    # main_infer()
