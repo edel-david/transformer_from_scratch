@@ -322,28 +322,23 @@ class LayerNorm:
         output = self.x_centered * self.stddev_inv
 
         return self.weight * output + self.bias
-
     def backward(self, grad: ArrayLike) -> cp.ndarray:
-        self.grad_bias = grad  # upstream gradient * 1.
+        B,T,C = self.input.shape
+        self.grad_bias = grad.mean(axis=(0, 1))  # upstream gradient * 1.
         self.grad_weight = (
-            grad * self.x_centered * self.stddev_inv
-        )  # upstream * centered * invvar
+            grad * (self.x_centered * self.stddev_inv)
+        ).mean(axis=(0, 1))  # upstream * centered * invvar
 
-        # fuck this is hard
-        grad = grad * self.weight.transpose()  # add dims to transpose
-        grad = grad * self.stddev_inv  # .squeeze()
-        # grad_out = grad.reshape((*grad.shape, 1)) * (
-        #     -2 * cp.power(self.x_centered, 2) * cp.power(self.stddev_inv, 2)
-        #     + (self.stddev_inv * (1 - self.normalized_shape[-1]))
-        # )  # TODO: check
-        #
-        grad_out = grad * (1 - 1 / self.input.shape[-1])
+        normalized = self.x_centered * self.stddev_inv
+        grad_normalized = grad * self.weight
+        grad_x = grad_normalized - grad_normalized.mean(-1,keepdims=True) - normalized * (grad_normalized *normalized).mean(-1,keepdims=True)
+        grad_x = grad_x * self.stddev_inv
+        return grad_x
 
-        return grad_out
 
     def update(self):
-        self.weight -= self.lr * self.grad_weight.mean(axis=(0, 1))
-        self.bias -= self.lr * self.grad_bias.mean(axis=(0, 1))
+        self.weight -= self.lr * self.grad_weight
+        self.bias -= self.lr * self.grad_bias
         return
         # raise NotImplementedError("Implement the LayerNorm update routine")
 
