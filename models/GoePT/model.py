@@ -176,7 +176,7 @@ class GoePT:
             grad = block.backward(grad)
         grad = self.transformer["drop"].backward(grad)
         self.transformer["wte"].backward(grad)
-        self.transformer["wpe"].backward(grad)
+        self.transformer["wpe"].backward(grad.sum(axis=0))
         return
 
     def update(self):
@@ -369,6 +369,8 @@ def main():
             ):
                 X, Y = get_batch("train")
                 logits, loss = model.forward(X, Y)
+                progress_step.console.print(f"Current local training loss: {loss:.5e}")
+                
                 loss = loss / args.gradient_accumulation_steps
                 # scale the loss to account for gradient accumulation
                 # wandb.log({"train_loss":loss})
@@ -380,7 +382,6 @@ def main():
                 model.backward(grad)
                 model.update()
 
-                progress_step.console.print(f"Current local training loss: {loss:.5e}")
                 progress_step.advance(task_id)
 
             progress_step.remove_task(task_id)
