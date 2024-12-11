@@ -562,27 +562,32 @@ class MultiHeadAttention:
         B, T, C = self.input.shape
         grad = self.resid_dropout.backward(grad)
         grad = self.c_proj.backward(grad)
-        long_grad = grad.reshape(
-            self.batch_size, self.n_heads, -1, self.depth
-        )  # long_grad: 16 x 6 x 256 x 64
+        grad = grad.reshape(
+            (B, T, self.n_heads, self.depth)
+        ).transpose(
+            0, 2, 1, 3
+        )
+
+        v_grad2 = self.attn.transpose(0, 1, 3, 2) @ grad
+        print(v_grad2.shape)
+
+        # long_grad is gradient for self.attn
+        long_grad = grad @ self.v.transpose(0, 1, 3, 2)# long_grad: 16 x 6 x 256 x 64
+
         # v.shape: 16 x 6 x 256 x 64
-        long_grad = long_grad @ self.v.transpose(
-            0, 1, 3, 2
-        )  # long_grad: 16 x 6 x 256 x 64
         long_grad = self.attn_dropout.backward(long_grad)
         long_grad = self.softmax_attn.backward(long_grad)
-        long_grad = long_grad * self.mask
+        #long_grad = long_grad * self.mask
+        long_grad = cp.where(self.mask == 0, 0, self.attn)
         long_grad = long_grad * (1 / cp.sqrt(self.depth))
         q_grad = long_grad @ self.k  # insert dimensions swaps
-        k_grad = long_grad @ self.q  #
-        v_grad = self.attn @ grad.reshape(
-            self.batch_size, self.n_heads, -1, self.depth
-        )  #
+        k_grad = long_grad.transpose(0, 1, 3, 2) @ self.q  #
+
         grad = cp.concatenate(
             (
                 q_grad.transpose(0, 2, 1, 3).reshape((B, T, C)),
                 k_grad.transpose(0, 2, 1, 3).reshape((B, T, C)),
-                v_grad.transpose(0, 2, 1, 3).reshape((B, T, C)),
+                v_grad2.transpose(0, 2, 1, 3).reshape((B, T, C)),
             ),
             2,
         )
@@ -658,26 +663,20 @@ class Embedding:
         self.gradient_projection_mask = cp.eye(num_embeddings, dtype=cp.uint8)
 
         self.input = None
-        self.grad_weight = None
+        self.grad_weight = cp.zeros((num_embeddings, embedding_dim))
 
     def forward(self, input: ArrayLike) -> cp.ndarray:
         self.input = cp.asanyarray(input)
         return self.weight[self.input.astype(cp.int32), :]
 
     def backward(self, grad_output: ArrayLike) -> cp.ndarray:
-        # this will probably be ones in the row the weight was pulled from multiplied with the upstream grad
         self.grad_weight.fill(0)
-        for inp, grad in zip(self.input, grad_output):
-            self.grad_weight[inp] += grad
+        self.grad_weight[self.input] += grad_output
         return
         # raise NotImplementedError("Implement the Embedding backward path")
 
     def update(self):
-        unique_indices = cp.unique(self.input)  # Unique indices to avoid redundant updates
-        for inp in unique_indices:
-            # Average gradients for a specific row across all occurrences
-            row_grads = self.grad_weight[inp]
-            self.weight[inp] -= self.lr * row_grads
+        self.weight -= self.lr * self.grad_weight
 
 
 class Block:
