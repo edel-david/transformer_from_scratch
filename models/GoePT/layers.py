@@ -569,7 +569,6 @@ class MultiHeadAttention:
         )
 
         v_grad2 = self.attn.transpose(0, 1, 3, 2) @ grad
-        #print(v_grad2.shape)
 
         # long_grad is gradient for self.attn
         long_grad = grad @ self.v.transpose(0, 1, 3, 2)# long_grad: 16 x 6 x 256 x 64
