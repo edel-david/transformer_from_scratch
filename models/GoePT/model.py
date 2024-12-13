@@ -497,7 +497,9 @@ def main_infer():
         logits, _ = model_loaded.forward(
             tokenized,
         )
-        probabilities = softmax(logits.squeeze())
+        from layers import Softmax
+        sm = Softmax(-1)
+        probabilities = sm.forward(logits.squeeze())
         chosen_token = cp.random.choice(
             cp.arange(probabilities.shape[0]), size=1, p=probabilities.squeeze()
         )

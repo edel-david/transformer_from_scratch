@@ -430,8 +430,8 @@ class MLP:
         return x
 
     def update(self) -> None:
-        self.c_proj.update()
         self.c_fc.update()
+        self.c_proj.update()
         return
 
     def get_params(self) -> dict:
@@ -569,7 +569,7 @@ class MultiHeadAttention:
         )
 
         v_grad2 = self.attn.transpose(0, 1, 3, 2) @ grad
-        print(v_grad2.shape)
+        #print(v_grad2.shape)
 
         # long_grad is gradient for self.attn
         long_grad = grad @ self.v.transpose(0, 1, 3, 2)# long_grad: 16 x 6 x 256 x 64
@@ -577,7 +577,6 @@ class MultiHeadAttention:
         # v.shape: 16 x 6 x 256 x 64
         long_grad = self.attn_dropout.backward(long_grad)
         long_grad = self.softmax_attn.backward(long_grad)
-        #long_grad = long_grad * self.mask
         long_grad = cp.where(self.mask == 0, 0, self.attn)
         long_grad = long_grad * (1 / cp.sqrt(self.depth))
         q_grad = long_grad @ self.k  # insert dimensions swaps
@@ -598,7 +597,6 @@ class MultiHeadAttention:
         self.c_proj.update()
         self.c_attn.update()
         return
-        # raise NotImplementedError("Implement the MultiHeadAttention update")
 
     def get_params(self) -> dict:
         return {
@@ -755,7 +753,6 @@ class Block:
         x += residual
         grad = x
         return grad
-        # raise NotImplementedError("Implement the Block backward path")
 
     def update(self) -> None:
         self.ln_2.update()
