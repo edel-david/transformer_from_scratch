@@ -470,11 +470,6 @@ def main():
                 break
 
 
-def softmax(arr):
-    expo = cp.exp(arr)
-    expo = expo / expo.sum()
-    return expo
-
 
 def main_infer():
     cp.random.seed(args.seed)
@@ -488,10 +483,11 @@ def main_infer():
     model_loaded = GoePT.from_state_dict(state_dict)
     ic(checkpoint_filename)
     ic(model_loaded)
-    text = "Senkt die"
+    text = "Das ist "
     non_padded_tokenized = cp.array(tokenizer.encode(text).ids)
-    tokenized = cp.full((256,), 2)
-    tokenized[-non_padded_tokenized.shape[0] :] = non_padded_tokenized
+    #tokenized = cp.full((256,), 2)
+    #tokenized[-non_padded_tokenized.shape[0] :] = non_padded_tokenized
+    tokenized = non_padded_tokenized
     tokenized = tokenized.reshape((1, -1))
 
     while tokenized[(0, 0)] == 2:  # shape.0 is batch (1) and shape.1 is context_length
