@@ -131,7 +131,7 @@ class GoePT:
             t <= self.context_length
         ), f"Cannot forward sequence of length {t}, block size is only {self.context_length}"
         pos = cp.arange(0, t, dtype=cp.int64)  # shape (t)
-
+        train = True if targets is not None else False
         # Forward the GPT model itself
         # Token embeddings of shape (b, t, n_embd)
         tok_emb = self.transformer["wte"].forward(idx)
@@ -140,11 +140,12 @@ class GoePT:
         pos_emb = self.transformer["wpe"].forward(pos)
 
         # Main transformer
-        x = self.transformer["drop"].forward(tok_emb + pos_emb)
+        x = self.transformer["drop"].forward(tok_emb + pos_emb,train)
         for block in self.transformer["h"]:
-            x = block.forward(x)
+            x = block.forward(x,train)
+        wandb.log({"x_after_block_mean":x.mean().item()})
         x = self.transformer["ln_f"].forward(x)
-
+        wandb.log({"pos_embed_mean":pos_emb.mean().item()})
         # Compute loss and return
         if targets is not None:
             # if we are given some desired targets also calculate the loss<
@@ -162,7 +163,8 @@ class GoePT:
                 x[:, [-1], :]
             )  # note: using list [-1] to preserve the time dim
             loss = None
-
+        if loss.item() > 100 or cp.isnan(loss).item():
+            print("BUG!?!?")
         return logits, loss
 
     def backward(self, x):
@@ -170,13 +172,25 @@ class GoePT:
         # (B x Context T x Vocab_dim)
         # the input x is: grad of forward pass = loss * raw_grad
         # x is del L / del logits ??!?
-        grad = self.lm_head.backward(x)
-        grad = self.transformer["ln_f"].backward(grad)
+        if x.mean().item() > 100:
+            print("INSPECT!")
+        grad1 = self.lm_head.backward(x)
+        if grad1.mean().item() > 100:
+            print("INSPECT!")
+        grad2 = self.transformer["ln_f"].backward(grad1)
+        if grad2.mean().item() > 100:
+            print("INSPECT!")
+        grad3= grad2.copy()
         for block in reversed(self.transformer["h"]):
-            grad = block.backward(grad)
-        grad = self.transformer["drop"].backward(grad)
-        self.transformer["wte"].backward(grad)
-        self.transformer["wpe"].backward(grad.sum(axis=0))
+            grad3 = block.backward(grad3)
+            if grad3.mean().item() > 100:
+                print("INSPECT!")
+        grad4 = self.transformer["drop"].backward(grad3)
+        if grad4.mean().item() > 100:
+            print("INSPECT!")
+        self.transformer["wte"].backward(grad4)
+        self.transformer["wpe"].backward(grad4.sum(axis=0))
+        print(grad4.sum(axis=0).mean())
         return
 
     def update(self):
@@ -494,13 +508,16 @@ def main_infer():
         logits, _ = model_loaded.forward(
             tokenized,
         )
-        from layers import Softmax
-        sm = Softmax(-1)
-        probabilities = sm.forward(logits.squeeze())
-        chosen_token = cp.random.choice(
-            cp.arange(probabilities.shape[0]), size=1, p=probabilities.squeeze()
-        )
-        new_token = tokenizer.decode((chosen_token.item(),))
+        # from layers import Softmax
+        # sm = Softmax(-1)
+        # probabilities = sm.forward(logits.squeeze())
+        # chosen_token = cp.random.choice(
+        #     cp.arange(probabilities.shape[0]), size=1, p=probabilities.squeeze()
+        # )
+        # new_token = tokenizer.decode((chosen_token.item(),))
+        id_next = logits.squeeze().argmax()
+        print(id_next)
+        new_token = tokenizer.decode((id_next))
         text += new_token
         print(text)
         non_padded_tokenized = cp.array(tokenizer.encode(text).ids)
@@ -579,8 +596,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     tokenizer: Tokenizer = Tokenizer.from_file(args.tokenizer)
-
-    api_key = open("apikey.txt", "r").read().strip()
+    with open("apikey.txt", "r") as readfile:
+        api_key = readfile.read().strip()
+    
     wandb.login(key=api_key)
     main()
     # main_infer()

@@ -415,11 +415,11 @@ class MLP:
 
         self.dropout = Dropout(dropout)
 
-    def forward(self, x: cp.ndarray) -> cp.ndarray:
+    def forward(self, x: cp.ndarray,train:bool) -> cp.ndarray:
         x = self.c_fc.forward(x)
         x = self.gelu.forward(x)
         x = self.c_proj.forward(x)
-        x = self.dropout.forward(x)
+        x = self.dropout.forward(x,train)
         return x
 
     def backward(self, x: cp.ndarray) -> cp.ndarray:
@@ -510,7 +510,7 @@ class MultiHeadAttention:
         self.k = None
         self.attn = None
 
-    def forward(self, input: ArrayLike) -> tuple:
+    def forward(self, input: ArrayLike,train:bool) -> tuple:
 
         self.input = cp.asanyarray(input)
 
@@ -540,7 +540,7 @@ class MultiHeadAttention:
 
         attn = cp.where(self.mask == 0, -1e9, attn)
         attn = self.softmax_attn.forward(attn)
-        attn = self.attn_dropout.forward(attn)
+        attn = self.attn_dropout.forward(attn,train)
 
         self.attn = attn  # 16 x 6 x 256 x 256
         # v.shape: 16 x 6 x 256 x 64
@@ -552,7 +552,7 @@ class MultiHeadAttention:
             .reshape(B, -1, self.n_heads * self.depth)
         )
         x = self.c_proj.forward(x)  # keeps dims
-        x = self.resid_dropout.forward(x)
+        x = self.resid_dropout.forward(x,train)
 
         return x, attn
 
@@ -723,12 +723,12 @@ class Block:
             bias_init_func=bias_init_func,
         )
 
-    def forward(self, input: ArrayLike) -> cp.ndarray:
+    def forward(self, input: ArrayLike,train:bool) -> cp.ndarray:
 
         input = cp.asanyarray(input)
 
         x = self.ln_1.forward(input)
-        x = self.attn.forward(x)[0]  # attn.forward returns (x, attn)
+        x = self.attn.forward(x,train)[0]  # attn.forward returns (x, attn)
 
         x = input + x
 
