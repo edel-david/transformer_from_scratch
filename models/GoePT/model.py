@@ -319,7 +319,7 @@ def main():
       # Set the project where this run will be logged
       project="tfs",
       # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
-      name=f"tfs{args.lr}_gpu",
+      name=f"tfs{args.lr}_" + os.uname()[1] + "_" + time.strftime("%Y%m%d-%H%M%S"),
       # Track hyperparameters and run metadata
       config={
       "learning_rate": args.lr,
