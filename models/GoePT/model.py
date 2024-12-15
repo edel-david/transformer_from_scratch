@@ -191,7 +191,6 @@ class GoePT:
         log("grad4",grad4)
         self.transformer["wte"].backward(grad4)
         self.transformer["wpe"].backward(grad4.sum(axis=0))
-        print(grad4.sum(axis=0).mean())
         return
 
     def update(self):
@@ -393,7 +392,7 @@ def main():
                 loss = loss / args.gradient_accumulation_steps
                 # scale the loss to account for gradient accumulation
                 wandb.log({"train_loss":loss.item()},step=step)
-                print(loss.item())
+                #print(loss.item())
                 # Get raw gradient
                 raw_grad = compute_gradient(Y, logits, one_hot_lookup)
 
