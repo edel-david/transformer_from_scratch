@@ -342,6 +342,11 @@ class LayerNorm:
         return grad_x
 
     def backward(self, upstream_grad: ArrayLike) -> ArrayLike:
+        self.grad_bias = upstream_grad.mean(axis=(0, 1))  # upstream gradient * 1.
+        self.grad_weight = (upstream_grad * (self.x_centered * self.stddev_inv)).mean(
+            axis=(0, 1)
+        )  # upstream * centered * invvar
+
         s1 = (upstream_grad * self.weight * self.input).mean(-1, keepdims=True)
         # mean instead of sum, to avoid division by N
         grad_normalized = upstream_grad * self.weight
