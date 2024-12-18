@@ -324,7 +324,7 @@ class LayerNorm:
 
         return self.weight * output + self.bias
 
-    def backward(self, grad: ArrayLike) -> cp.ndarray:
+    def backward_old(self, grad: ArrayLike) -> cp.ndarray:
         B, T, C = self.input.shape
         self.grad_bias = grad.mean(axis=(0, 1))  # upstream gradient * 1.
         self.grad_weight = (grad * (self.x_centered * self.stddev_inv)).mean(
@@ -339,6 +339,23 @@ class LayerNorm:
             - normalized * (grad_normalized * normalized).mean(-1, keepdims=True)
         )
         grad_x = grad_x * self.stddev_inv
+        return grad_x
+
+    def backward(self, upstream_grad: ArrayLike) -> ArrayLike:
+        s1 = (upstream_grad * self.weight * self.input).mean(-1, keepdims=True)
+        # mean instead of sum, to avoid division by N
+        grad_normalized = upstream_grad * self.weight
+        lambd = (
+            grad_normalized.sum(-1, keepdims=True) * self.input.mean(-1, keepdims=True)
+            - s1 * self.stddev_inv**3
+        )
+        theta = (
+            -lambd * self.input.mean(-1, keepdims=True)
+            - grad_normalized.mean(-1, keepdims=True) * self.stddev_inv
+        )
+        grad_x = (
+            self.stddev_inv * upstream_grad * self.weight + lambd * self.input + theta
+        )
         return grad_x
 
     def update(self):
@@ -562,21 +579,17 @@ class MultiHeadAttention:
         B, T, C = self.input.shape
         grad = self.resid_dropout.backward(grad)
         grad = self.c_proj.backward(grad)
-        grad = grad.reshape(
-            (B, T, self.n_heads, self.depth)
-        ).transpose(
-            0, 2, 1, 3
-        )
+        grad = grad.reshape((B, T, self.n_heads, self.depth)).transpose(0, 2, 1, 3)
 
         v_grad2 = self.attn.transpose(0, 1, 3, 2) @ grad
 
         # long_grad is gradient for self.attn
-        long_grad = grad @ self.v.transpose(0, 1, 3, 2)# long_grad: 16 x 6 x 256 x 64
+        long_grad = grad @ self.v.transpose(0, 1, 3, 2)  # long_grad: 16 x 6 x 256 x 64
 
         # v.shape: 16 x 6 x 256 x 64
         long_grad = self.attn_dropout.backward(long_grad)
         long_grad = self.softmax_attn.backward(long_grad)
-        #long_grad = long_grad * self.mask
+        # long_grad = long_grad * self.mask
         long_grad = cp.where(self.mask == 0, 0, self.attn)
         long_grad = long_grad * (1 / cp.sqrt(self.depth))
         q_grad = long_grad @ self.k  # insert dimensions swaps
