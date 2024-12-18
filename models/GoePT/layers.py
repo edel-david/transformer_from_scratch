@@ -15,12 +15,14 @@ import copy
 from types import NoneType
 from typing import Union, Callable
 import wandb
-from utils import log,log_one
+from utils import log, log_one
 import numpy as np
 import cupy as cp
-#from numpy.typing import ArrayLike
+
+# from numpy.typing import ArrayLike
 from icecream import ic
 from cupy.typing import ArrayLike
+
 sys.path.append(".")
 
 from utils import compress_numpy_array, decompress_numpy_array
@@ -436,11 +438,11 @@ class MLP:
 
         self.dropout = Dropout(dropout)
 
-    def forward(self, x: cp.ndarray,train:bool) -> cp.ndarray:
+    def forward(self, x: cp.ndarray, train: bool) -> cp.ndarray:
         x = self.c_fc.forward(x)
         x = self.gelu.forward(x)
         x = self.c_proj.forward(x)
-        x = self.dropout.forward(x,train)
+        x = self.dropout.forward(x, train)
         return x
 
     def backward(self, x: cp.ndarray) -> cp.ndarray:
@@ -531,7 +533,7 @@ class MultiHeadAttention:
         self.k = None
         self.attn = None
 
-    def forward(self, input: ArrayLike,train:bool) -> tuple:
+    def forward(self, input: ArrayLike, train: bool) -> tuple:
 
         self.input = cp.asanyarray(input)
 
@@ -561,7 +563,7 @@ class MultiHeadAttention:
 
         attn = cp.where(self.mask == 0, -1e9, attn)
         attn = self.softmax_attn.forward(attn)
-        attn = self.attn_dropout.forward(attn,train)
+        attn = self.attn_dropout.forward(attn, train)
 
         self.attn = attn  # 16 x 6 x 256 x 256
         # v.shape: 16 x 6 x 256 x 64
@@ -573,13 +575,13 @@ class MultiHeadAttention:
             .reshape(B, -1, self.n_heads * self.depth)
         )
         x = self.c_proj.forward(x)  # keeps dims
-        x = self.resid_dropout.forward(x,train)
+        x = self.resid_dropout.forward(x, train)
 
         return x, attn
 
     def backward(self, grad: ArrayLike) -> cp.ndarray:
         # grad: 16 x 256 x ...
-        
+
         B, T, C = self.input.shape
         grad = self.resid_dropout.backward(grad)
         grad = self.c_proj.backward(grad)
@@ -597,7 +599,6 @@ class MultiHeadAttention:
         long_grad = long_grad * (1 / cp.sqrt(self.depth))
         q_grad = long_grad @ self.k  # insert dimensions swaps
         k_grad = long_grad.transpose(0, 1, 3, 2) @ self.q  #
-    
 
         grad = cp.concatenate(
             (
@@ -682,7 +683,7 @@ class Embedding:
 
     def forward(self, input: ArrayLike) -> cp.ndarray:
         global step
-        log_one(f"Embedding{self.num_embeddings}_max",self.weight.max().item())
+        log_one(f"Embedding{self.num_embeddings}_max", self.weight.max().item())
         self.input = cp.asanyarray(input)
         return self.weight[self.input.astype(cp.int32), :]
 
@@ -742,20 +743,21 @@ class Block:
             c_proj_init_func=c_proj_init_func,
             bias_init_func=bias_init_func,
         )
-    def forward(self, input: ArrayLike,train) -> cp.ndarray:
+
+    def forward(self, input: ArrayLike, train) -> cp.ndarray:
 
         input = cp.asanyarray(input)
 
         x = self.ln_1.forward(input)
 
-        x = self.attn.forward(x,train)[0]
+        x = self.attn.forward(x, train)[0]
 
         x = input + x
 
         residual = copy.deepcopy(x)
 
         x = self.ln_2.forward(x)
-        x = self.mlp.forward(x,train)
+        x = self.mlp.forward(x, train)
         x = residual + x
 
         return x
@@ -774,13 +776,12 @@ class Block:
         # Backward pass for Residual Connection 2
         x = self.mlp.backward(upstream_grad)
         x = self.ln_2.backward(x)
-        x+=upstream_grad
+        x += upstream_grad
         # is correct
         y = self.attn.backward(x)
         y = self.ln_1.backward(y)
         x = x + y
         return x
-
 
     def update(self) -> None:
         self.ln_2.update()

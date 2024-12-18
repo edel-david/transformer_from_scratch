@@ -27,12 +27,12 @@ import warnings
 
 warnings.filterwarnings("error")
 from utils import log
+
 global step
 step = 0
 
 ic.configureOutput(includeContext=True)
 ic.disable()
-
 
 
 class GoePT:
@@ -144,12 +144,12 @@ class GoePT:
         pos_emb = self.transformer["wpe"].forward(pos)
 
         # Main transformer
-        x = self.transformer["drop"].forward(tok_emb + pos_emb,train)
+        x = self.transformer["drop"].forward(tok_emb + pos_emb, train)
         for block in self.transformer["h"]:
-            x = block.forward(x,train)
-        wandb.log({"x_after_block_mean":x.mean().item()},step=step)
+            x = block.forward(x, train)
+        wandb.log({"x_after_block_mean": x.mean().item()}, step=step)
         x = self.transformer["ln_f"].forward(x)
-        wandb.log({"pos_embed_mean":pos_emb.mean().item()},step=step)
+        wandb.log({"pos_embed_mean": pos_emb.mean().item()}, step=step)
         # Compute loss and return
         if targets is not None:
             # if we are given some desired targets also calculate the loss<
@@ -171,24 +171,23 @@ class GoePT:
             print("BUG!?!?")
         return logits, loss
 
-
     def backward(self, x):
         # we can assume that train is on if we do backwards, so output of forward was:
         # (B x Context T x Vocab_dim)
         # the input x is: grad of forward pass = loss * raw_grad
         # x is del L / del logits ??!?
         global step
-        log("back_start",x,step)
+        log("back_start", x, step)
         grad1 = self.lm_head.backward(x)
-        log("grad1",grad1,step)
+        log("grad1", grad1, step)
         grad2 = self.transformer["ln_f"].backward(grad1)
-        log("grad2",grad2)
-        grad3= grad2.copy()
+        log("grad2", grad2)
+        grad3 = grad2.copy()
         for block in reversed(self.transformer["h"]):
             grad3 = block.backward(grad3)
-        log("grad3",grad3)
+        log("grad3", grad3)
         grad4 = self.transformer["drop"].backward(grad3)
-        log("grad4",grad4)
+        log("grad4", grad4)
         self.transformer["wte"].backward(grad4)
         self.transformer["wpe"].backward(grad4.sum(axis=0))
         return
@@ -276,24 +275,18 @@ import mmap
 
 
 def read_datasets(split, data_dir, context_length, batch_size, rng):
-    # We recreate cp.memmap every batch to avoid a memory leak, as per
+    # We recreate np.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
 
     if split == "train":
-        # old numpy
-        data_mem = np.memmap(
-            os.path.join(data_dir, "train.bin"), dtype=cp.uint16, mode="r"
-        )
-        data = cp.asarray(data_mem)
+        data = np.memmap(os.path.join(data_dir, "train.bin"), dtype=np.uint16, mode="r")
     else:
-        data_mem = np.memmap(
-            os.path.join(data_dir, "val.bin"), dtype=cp.uint16, mode="r"
-        )
-        data = cp.asarray(data_mem)
+        data = np.memmap(os.path.join(data_dir, "val.bin"), dtype=np.uint16, mode="r")
+
     ix = rng.integers(len(data) - context_length, size=(batch_size,))
 
-    x = cp.stack([(data[i : i + context_length].astype(cp.int64)) for i in ix])
-    y = cp.stack([(data[i + 1 : i + 1 + context_length].astype(cp.int64)) for i in ix])
+    x = np.stack([(data[i : i + context_length].astype(np.int64)) for i in ix])
+    y = np.stack([(data[i + 1 : i + 1 + context_length].astype(np.int64)) for i in ix])
 
     return x, y
 
@@ -315,17 +308,18 @@ def main():
     global step
     step = 1
     wandb.init(
-      # Set the project where this run will be logged
-      project="tfs",
-      # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
-      name=f"tfs{args.lr}_" + os.uname()[1] + "_" + time.strftime("%Y%m%d-%H%M%S"),
-      # Track hyperparameters and run metadata
-      config={
-      "learning_rate": args.lr,
-      "architecture": "transformer",
-      "dataset": "goethe",
-      "epochs": args.epochs,
-      })
+        # Set the project where this run will be logged
+        project="tfs",
+        # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
+        name=f"tfs{args.lr}_" + os.uname()[1] + "_" + time.strftime("%Y%m%d-%H%M%S"),
+        # Track hyperparameters and run metadata
+        config={
+            "learning_rate": args.lr,
+            "architecture": "transformer",
+            "dataset": "goethe",
+            "epochs": args.epochs,
+        },
+    )
 
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
@@ -384,15 +378,16 @@ def main():
                 total=args.gradient_accumulation_steps,
                 task_id=task_id,
             ):
-                step+=1
+                step += 1
                 X, Y = get_batch("train")
+                X, Y = cp.asarray(X), cp.asarray(Y)
                 logits, loss = model.forward(X, Y)
                 progress_step.console.print(f"Current local training loss: {loss:.5e}")
-                
+
                 loss = loss / args.gradient_accumulation_steps
                 # scale the loss to account for gradient accumulation
-                wandb.log({"train_loss":loss.item()},step=step)
-                #print(loss.item())
+                wandb.log({"train_loss": loss.item()}, step=step)
+                # print(loss.item())
                 # Get raw gradient
                 raw_grad = compute_gradient(Y, logits, one_hot_lookup)
 
@@ -423,7 +418,7 @@ def main():
                     ):
 
                         X, Y = get_batch(split)
-
+                        X, Y = cp.asarray(X), cp.asarray(Y)
                         logits, loss = model.forward(X, Y)
 
                         losses[k] = loss.item()
@@ -437,7 +432,7 @@ def main():
                 progress_step.console.print(
                     f"Iter: {iter_num} {loss_val}, vs {best_val_loss}"
                 )
-                wandb.log({"val_loss":loss_val.item()},step=step)
+                wandb.log({"val_loss": loss_val.item()}, step=step)
                 if losses_dataset["val"] < best_val_loss:
 
                     status_update_string = f'Val loss decreased from {best_val_loss:.4f} to {losses_dataset["val"]:.4f}'
@@ -488,7 +483,6 @@ def main():
                 break
 
 
-
 def main_infer():
     cp.random.seed(args.seed)
     checkpoint_filename = "goe_pt_iter_11.json"
@@ -503,8 +497,8 @@ def main_infer():
     ic(model_loaded)
     text = "Das ist "
     non_padded_tokenized = cp.array(tokenizer.encode(text).ids)
-    #tokenized = cp.full((256,), 2)
-    #tokenized[-non_padded_tokenized.shape[0] :] = non_padded_tokenized
+    # tokenized = cp.full((256,), 2)
+    # tokenized[-non_padded_tokenized.shape[0] :] = non_padded_tokenized
     tokenized = non_padded_tokenized
     tokenized = tokenized.reshape((1, -1))
 
@@ -602,7 +596,7 @@ if __name__ == "__main__":
     tokenizer: Tokenizer = Tokenizer.from_file(args.tokenizer)
     with open("apikey.txt", "r") as readfile:
         api_key = readfile.read().strip()
-    
+
     wandb.login(key=api_key)
     main()
     # main_infer()
