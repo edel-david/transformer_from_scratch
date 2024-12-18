@@ -26,10 +26,13 @@ from utils import compress_numpy_array, decompress_numpy_array
 import warnings
 
 warnings.filterwarnings("error")
-
+from utils import log
+global step
+step = 0
 
 ic.configureOutput(includeContext=True)
 ic.disable()
+
 
 
 class GoePT:
@@ -56,15 +59,15 @@ class GoePT:
         self.rng = cp.random.default_rng()
 
         def weight_init(size):
-            return cp.random.normal(size=size, loc=0.0, scale=0.02).astype(cp.float32)
+            return cp.random.normal(size=size, loc=0.0, scale=0.02).astype(cp.float64)
 
         def c_proj_weight_init(size):
             return cp.random.normal(
                 size=size, loc=0.0, scale=0.02 / math.sqrt(2 * self.n_layer)
-            ).astype(cp.float32)
+            ).astype(cp.float64)
 
         def bias_init(size):
-            return cp.zeros(shape=size, dtype=cp.float32)
+            return cp.zeros(shape=size, dtype=cp.float64)
 
         # Define lm_head first so we can pass its
         # weights_transposed property to the wte
@@ -126,12 +129,13 @@ class GoePT:
         # same weights in memory"
 
     def forward(self, idx, targets=None):
+        global step
         b, t = idx.shape
         assert (
             t <= self.context_length
         ), f"Cannot forward sequence of length {t}, block size is only {self.context_length}"
         pos = cp.arange(0, t, dtype=cp.int64)  # shape (t)
-
+        train = True if targets is not None else False
         # Forward the GPT model itself
         # Token embeddings of shape (b, t, n_embd)
         tok_emb = self.transformer["wte"].forward(idx)
@@ -140,11 +144,12 @@ class GoePT:
         pos_emb = self.transformer["wpe"].forward(pos)
 
         # Main transformer
-        x = self.transformer["drop"].forward(tok_emb + pos_emb)
+        x = self.transformer["drop"].forward(tok_emb + pos_emb,train)
         for block in self.transformer["h"]:
-            x = block.forward(x)
+            x = block.forward(x,train)
+        wandb.log({"x_after_block_mean":x.mean().item()},step=step)
         x = self.transformer["ln_f"].forward(x)
-
+        wandb.log({"pos_embed_mean":pos_emb.mean().item()},step=step)
         # Compute loss and return
         if targets is not None:
             # if we are given some desired targets also calculate the loss<
@@ -162,21 +167,30 @@ class GoePT:
                 x[:, [-1], :]
             )  # note: using list [-1] to preserve the time dim
             loss = None
-
+        if loss.item() > 100 or cp.isnan(loss).item():
+            print("BUG!?!?")
         return logits, loss
+
 
     def backward(self, x):
         # we can assume that train is on if we do backwards, so output of forward was:
         # (B x Context T x Vocab_dim)
         # the input x is: grad of forward pass = loss * raw_grad
         # x is del L / del logits ??!?
-        grad = self.lm_head.backward(x)
-        grad = self.transformer["ln_f"].backward(grad)
+        global step
+        log("back_start",x,step)
+        grad1 = self.lm_head.backward(x)
+        log("grad1",grad1,step)
+        grad2 = self.transformer["ln_f"].backward(grad1)
+        log("grad2",grad2)
+        grad3= grad2.copy()
         for block in reversed(self.transformer["h"]):
-            grad = block.backward(grad)
-        grad = self.transformer["drop"].backward(grad)
-        self.transformer["wte"].backward(grad)
-        self.transformer["wpe"].backward(grad.sum(axis=0))
+            grad3 = block.backward(grad3)
+        log("grad3",grad3)
+        grad4 = self.transformer["drop"].backward(grad3)
+        log("grad4",grad4)
+        self.transformer["wte"].backward(grad4)
+        self.transformer["wpe"].backward(grad4.sum(axis=0))
         return
 
     def update(self):
@@ -184,6 +198,7 @@ class GoePT:
         self.transformer["ln_f"].update()
         for block in self.transformer["h"]:
             block.update()
+            pass
         self.transformer["wte"].update()
         self.transformer["wpe"].update()
         return
@@ -297,11 +312,13 @@ def compute_gradient(target, prediction, one_hot_lookup):
 
 def main():
     # Training settings
+    global step
+    step = 1
     wandb.init(
       # Set the project where this run will be logged
       project="tfs",
       # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
-      name=f"tfs{args.lr}_gpu",
+      name=f"tfs{args.lr}_" + os.uname()[1] + "_" + time.strftime("%Y%m%d-%H%M%S"),
       # Track hyperparameters and run metadata
       config={
       "learning_rate": args.lr,
@@ -367,14 +384,15 @@ def main():
                 total=args.gradient_accumulation_steps,
                 task_id=task_id,
             ):
+                step+=1
                 X, Y = get_batch("train")
                 logits, loss = model.forward(X, Y)
                 progress_step.console.print(f"Current local training loss: {loss:.5e}")
                 
                 loss = loss / args.gradient_accumulation_steps
                 # scale the loss to account for gradient accumulation
-                wandb.log({"train_loss":loss.item()})
-                print(loss.item())
+                wandb.log({"train_loss":loss.item()},step=step)
+                #print(loss.item())
                 # Get raw gradient
                 raw_grad = compute_gradient(Y, logits, one_hot_lookup)
 
@@ -419,7 +437,7 @@ def main():
                 progress_step.console.print(
                     f"Iter: {iter_num} {loss_val}, vs {best_val_loss}"
                 )
-                wandb.log({"val_loss":loss_val.item()})
+                wandb.log({"val_loss":loss_val.item()},step=step)
                 if losses_dataset["val"] < best_val_loss:
 
                     status_update_string = f'Val loss decreased from {best_val_loss:.4f} to {losses_dataset["val"]:.4f}'
@@ -470,11 +488,6 @@ def main():
                 break
 
 
-def softmax(arr):
-    expo = cp.exp(arr)
-    expo = expo / expo.sum()
-    return expo
-
 
 def main_infer():
     cp.random.seed(args.seed)
@@ -488,21 +501,27 @@ def main_infer():
     model_loaded = GoePT.from_state_dict(state_dict)
     ic(checkpoint_filename)
     ic(model_loaded)
-    text = "Senkt die"
+    text = "Das ist "
     non_padded_tokenized = cp.array(tokenizer.encode(text).ids)
-    tokenized = cp.full((256,), 2)
-    tokenized[-non_padded_tokenized.shape[0] :] = non_padded_tokenized
+    #tokenized = cp.full((256,), 2)
+    #tokenized[-non_padded_tokenized.shape[0] :] = non_padded_tokenized
+    tokenized = non_padded_tokenized
     tokenized = tokenized.reshape((1, -1))
 
     while tokenized[(0, 0)] == 2:  # shape.0 is batch (1) and shape.1 is context_length
         logits, _ = model_loaded.forward(
             tokenized,
         )
-        probabilities = softmax(logits.squeeze())
-        chosen_token = cp.random.choice(
-            cp.arange(probabilities.shape[0]), size=1, p=probabilities.squeeze()
-        )
-        new_token = tokenizer.decode((chosen_token.item(),))
+        # from layers import Softmax
+        # sm = Softmax(-1)
+        # probabilities = sm.forward(logits.squeeze())
+        # chosen_token = cp.random.choice(
+        #     cp.arange(probabilities.shape[0]), size=1, p=probabilities.squeeze()
+        # )
+        # new_token = tokenizer.decode((chosen_token.item(),))
+        id_next = logits.squeeze().argmax()
+        print(id_next)
+        new_token = tokenizer.decode((id_next))
         text += new_token
         print(text)
         non_padded_tokenized = cp.array(tokenizer.encode(text).ids)
@@ -581,8 +600,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     tokenizer: Tokenizer = Tokenizer.from_file(args.tokenizer)
-
-    api_key = open("apikey.txt", "r").read().strip()
+    with open("apikey.txt", "r") as readfile:
+        api_key = readfile.read().strip()
+    
     wandb.login(key=api_key)
     main()
     # main_infer()

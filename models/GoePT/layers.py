@@ -14,13 +14,13 @@ import math
 import copy
 from types import NoneType
 from typing import Union, Callable
-
-
+import wandb
+from utils import log,log_one
 import numpy as np
 import cupy as cp
-from numpy.typing import ArrayLike
+#from numpy.typing import ArrayLike
 from icecream import ic
-
+from cupy.typing import ArrayLike
 sys.path.append(".")
 
 from utils import compress_numpy_array, decompress_numpy_array
@@ -148,7 +148,7 @@ class Linear:
             output += self.bias
         return output
 
-    def backward(self, grad_output: ArrayLike) -> cp.ndarray:
+    def backward(self, grad_output: ArrayLike) -> ArrayLike:
 
         grad_output = cp.asanyarray(grad_output)
 
@@ -235,7 +235,7 @@ class Dropout:
         self.mask = None
         self.input = None
 
-    def forward(self, input: ArrayLike, train: bool = False) -> cp.ndarray:
+    def forward(self, input: ArrayLike, train: bool = False) -> ArrayLike:
 
         input = cp.asanyarray(input)
 
@@ -285,11 +285,11 @@ class LayerNorm:
         if self.weight_init_func:
             self.weight = cp.asanyarray(self.weight_init_func((normalized_shape)))
         else:
-            self.weight = cp.ones((normalized_shape), dtype=cp.float32)
+            self.weight = cp.ones((normalized_shape), dtype=cp.float64)
         if self.bias_init_func:
             self.bias = cp.asanyarray(self.bias_init_func((normalized_shape)))
         else:
-            self.bias = cp.zeros((normalized_shape), dtype=cp.float32)
+            self.bias = cp.zeros((normalized_shape), dtype=cp.float64)
 
         self.axis = None
 
@@ -383,7 +383,6 @@ class GELU:
         )
 
     def backward(self, grad_output: ArrayLike) -> cp.ndarray:
-        # raise NotImplementedError("Implement the GELU backward path")
         x = self.input
         m1 = self._sqrt_of_2_by_pi
         m2 = 0.044715
@@ -432,11 +431,11 @@ class MLP:
 
         self.dropout = Dropout(dropout)
 
-    def forward(self, x: cp.ndarray) -> cp.ndarray:
+    def forward(self, x: cp.ndarray,train:bool) -> cp.ndarray:
         x = self.c_fc.forward(x)
         x = self.gelu.forward(x)
         x = self.c_proj.forward(x)
-        x = self.dropout.forward(x)
+        x = self.dropout.forward(x,train)
         return x
 
     def backward(self, x: cp.ndarray) -> cp.ndarray:
@@ -447,8 +446,8 @@ class MLP:
         return x
 
     def update(self) -> None:
-        self.c_proj.update()
         self.c_fc.update()
+        self.c_proj.update()
         return
 
     def get_params(self) -> dict:
@@ -518,7 +517,7 @@ class MultiHeadAttention:
         )
 
         self.mask = cp.tril(
-            cp.ones((context_size, context_size), dtype=cp.float32)
+            cp.ones((context_size, context_size), dtype=cp.float64)
         ).reshape(1, 1, context_size, context_size)
 
         self.input = None
@@ -527,7 +526,7 @@ class MultiHeadAttention:
         self.k = None
         self.attn = None
 
-    def forward(self, input: ArrayLike) -> tuple:
+    def forward(self, input: ArrayLike,train:bool) -> tuple:
 
         self.input = cp.asanyarray(input)
 
@@ -557,7 +556,7 @@ class MultiHeadAttention:
 
         attn = cp.where(self.mask == 0, -1e9, attn)
         attn = self.softmax_attn.forward(attn)
-        attn = self.attn_dropout.forward(attn)
+        attn = self.attn_dropout.forward(attn,train)
 
         self.attn = attn  # 16 x 6 x 256 x 256
         # v.shape: 16 x 6 x 256 x 64
@@ -569,31 +568,31 @@ class MultiHeadAttention:
             .reshape(B, -1, self.n_heads * self.depth)
         )
         x = self.c_proj.forward(x)  # keeps dims
-        x = self.resid_dropout.forward(x)
+        x = self.resid_dropout.forward(x,train)
 
         return x, attn
 
     def backward(self, grad: ArrayLike) -> cp.ndarray:
         # grad: 16 x 256 x ...
-
+        
         B, T, C = self.input.shape
         grad = self.resid_dropout.backward(grad)
         grad = self.c_proj.backward(grad)
         grad = grad.reshape((B, T, self.n_heads, self.depth)).transpose(0, 2, 1, 3)
 
         v_grad2 = self.attn.transpose(0, 1, 3, 2) @ grad
-
         # long_grad is gradient for self.attn
         long_grad = grad @ self.v.transpose(0, 1, 3, 2)  # long_grad: 16 x 6 x 256 x 64
 
         # v.shape: 16 x 6 x 256 x 64
         long_grad = self.attn_dropout.backward(long_grad)
         long_grad = self.softmax_attn.backward(long_grad)
-        # long_grad = long_grad * self.mask
-        long_grad = cp.where(self.mask == 0, 0, self.attn)
+        long_grad = cp.where(self.mask == 0, 0, long_grad)
+
         long_grad = long_grad * (1 / cp.sqrt(self.depth))
         q_grad = long_grad @ self.k  # insert dimensions swaps
         k_grad = long_grad.transpose(0, 1, 3, 2) @ self.q  #
+    
 
         grad = cp.concatenate(
             (
@@ -610,7 +609,6 @@ class MultiHeadAttention:
         self.c_proj.update()
         self.c_attn.update()
         return
-        # raise NotImplementedError("Implement the MultiHeadAttention update")
 
     def get_params(self) -> dict:
         return {
@@ -666,7 +664,7 @@ class Embedding:
                 )
             else:
                 self.weight = self.rng.standard_normal(
-                    (num_embeddings, embedding_dim), dtype=cp.float32
+                    (num_embeddings, embedding_dim), dtype=cp.float64
                 )
 
         else:
@@ -678,6 +676,8 @@ class Embedding:
         self.grad_weight = cp.zeros((num_embeddings, embedding_dim))
 
     def forward(self, input: ArrayLike) -> cp.ndarray:
+        global step
+        log_one(f"Embedding{self.num_embeddings}_max",self.weight.max().item())
         self.input = cp.asanyarray(input)
         return self.weight[self.input.astype(cp.int32), :]
 
@@ -737,37 +737,45 @@ class Block:
             c_proj_init_func=c_proj_init_func,
             bias_init_func=bias_init_func,
         )
-
-    def forward(self, input: ArrayLike) -> cp.ndarray:
+    def forward(self, input: ArrayLike,train) -> cp.ndarray:
 
         input = cp.asanyarray(input)
 
         x = self.ln_1.forward(input)
-        x = self.attn.forward(x)[0]  # attn.forward returns (x, attn)
+
+        x = self.attn.forward(x,train)[0]
 
         x = input + x
 
-        residual = copy.deepcopy(
-            x
-        )  # TODO: check if we want residual to be after normalization (here both times)
+        residual = copy.deepcopy(x)
 
         x = self.ln_2.forward(x)
-        x = self.mlp.forward(x)
+        x = self.mlp.forward(x,train)
         x = residual + x
 
         return x
 
-    def backward(self, grad_output: ArrayLike) -> cp.ndarray:
-        x = self.mlp.backward(grad_output)  # x is no m in notes
-        x = self.ln_2.backward(x)  # x is del L / del r
-        x += grad_output  # add skip connection
-        residual = copy.deepcopy(x)  # save r for the second skip connection
-        x = self.attn.backward(x)
-        x = self.ln_1.backward(x)  #
-        x += residual
-        grad = x
-        return grad
-        # raise NotImplementedError("Implement the Block backward path")
+    def backward(self, upstream_grad):
+        """
+        Computes gradients for the transformer block.
+
+        Args:
+            upstream_grad: Gradient from the subsequent layer.
+
+        Returns:
+            Gradient with respect to the input `x`.
+        """
+        x = upstream_grad
+        # Backward pass for Residual Connection 2
+        x = self.mlp.backward(upstream_grad)
+        x = self.ln_2.backward(x)
+        x+=upstream_grad
+        # is correct
+        y = self.attn.backward(x)
+        y = self.ln_1.backward(y)
+        x = x + y
+        return x
+
 
     def update(self) -> None:
         self.ln_2.update()
@@ -775,7 +783,6 @@ class Block:
         self.mlp.update()
         self.attn.update()
         return
-        # raise NotImplementedError("Implement the Block update")
 
     def state_dict(self) -> dict:
         return {
