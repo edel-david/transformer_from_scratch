@@ -167,8 +167,6 @@ class GoePT:
                 x[:, [-1], :]
             )  # note: using list [-1] to preserve the time dim
             loss = None
-        if loss.item() > 100 or cp.isnan(loss).item():
-            print("BUG!?!?")
         return logits, loss
 
 
@@ -490,8 +488,18 @@ def main():
 
 
 def main_infer():
+    wandb.init(
+      # Set the project where this run will be logged
+      project="tfs_infer",
+      # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
+      name=f"tfs_infer" + os.uname()[1] + "_" + time.strftime("%Y%m%d-%H%M%S"),
+      # Track hyperparameters and run metadata
+      config={
+      "architecture": "transformer",
+      "dataset": "goethe",
+      })
     cp.random.seed(args.seed)
-    checkpoint_filename = "goe_pt_iter_11.json"
+    checkpoint_filename = "goe_pt_iter_200.json"
     with open(
         os.path.join(args.checkpoint_dir, checkpoint_filename),
         mode="r",
@@ -501,14 +509,15 @@ def main_infer():
     model_loaded = GoePT.from_state_dict(state_dict)
     ic(checkpoint_filename)
     ic(model_loaded)
-    text = "Das ist "
+    text = "Faust wollte"
     non_padded_tokenized = cp.array(tokenizer.encode(text).ids)
-    #tokenized = cp.full((256,), 2)
-    #tokenized[-non_padded_tokenized.shape[0] :] = non_padded_tokenized
-    tokenized = non_padded_tokenized
+    tokenized = cp.full((256,), 2)
+    tokenized[-non_padded_tokenized.shape[0] :] = non_padded_tokenized
+    #tokenized = non_padded_tokenized
     tokenized = tokenized.reshape((1, -1))
 
     while tokenized[(0, 0)] == 2:  # shape.0 is batch (1) and shape.1 is context_length
+
         logits, _ = model_loaded.forward(
             tokenized,
         )
@@ -521,7 +530,7 @@ def main_infer():
         # new_token = tokenizer.decode((chosen_token.item(),))
         id_next = logits.squeeze().argmax()
         print(id_next)
-        new_token = tokenizer.decode((id_next))
+        new_token = tokenizer.decode((id_next.item(),))
         text += new_token
         print(text)
         non_padded_tokenized = cp.array(tokenizer.encode(text).ids)
@@ -604,5 +613,5 @@ if __name__ == "__main__":
         api_key = readfile.read().strip()
     
     wandb.login(key=api_key)
-    main()
-    # main_infer()
+    # main()
+    main_infer()
