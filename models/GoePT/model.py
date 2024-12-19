@@ -306,6 +306,7 @@ def main():
     global step
     step = 1
     wandb.init(
+        mode = "disabled", # disable wandb
         # Set the project where this run will be logged
         project="tfs",
         # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
@@ -340,7 +341,7 @@ def main():
 
     # training loop
 
-    rng = cp.random.default_rng()
+    rng = np.random.default_rng()
 
     get_batch = partial(
         read_datasets,
@@ -483,15 +484,16 @@ def main():
 
 def main_infer():
     wandb.init(
-      # Set the project where this run will be logged
-      project="tfs_infer",
-      # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
-      name=f"tfs_infer" + os.uname()[1] + "_" + time.strftime("%Y%m%d-%H%M%S"),
-      # Track hyperparameters and run metadata
-      config={
-      "architecture": "transformer",
-      "dataset": "goethe",
-      })
+        # Set the project where this run will be logged
+        project="tfs_infer",
+        # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
+        name=f"tfs_infer" + os.uname()[1] + "_" + time.strftime("%Y%m%d-%H%M%S"),
+        # Track hyperparameters and run metadata
+        config={
+            "architecture": "transformer",
+            "dataset": "goethe",
+        },
+    )
     cp.random.seed(args.seed)
     checkpoint_filename = "goe_pt_iter_200.json"
     with open(
@@ -607,5 +609,5 @@ if __name__ == "__main__":
         api_key = readfile.read().strip()
 
     wandb.login(key=api_key)
-    # main()
-    main_infer()
+    main()
+    # main_infer()

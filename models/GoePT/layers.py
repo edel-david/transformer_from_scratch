@@ -37,7 +37,7 @@ class Linear:
         lr: float = 0.1,
         bias: bool = True,
         weight_init_func: Union[Callable, None] = None,
-        bias_init_func: Union[Callable, None] = None,
+        bias_init_func: Union[Callable, None] = None, # this will be zeros(shape)
     ) -> None:
 
         super(Linear, self).__init__()
@@ -152,7 +152,7 @@ class Linear:
 
     def backward(self, grad_output: ArrayLike) -> ArrayLike:
 
-        grad_output = cp.asanyarray(grad_output)
+        grad_output: ArrayLike = cp.asanyarray(grad_output)
 
         grad_input = self._multi_dim_matmul(grad_output, self.weight, transpose_b=True)
 
@@ -167,8 +167,8 @@ class Linear:
         )
 
         if self.use_bias:
-            self.grad_bias = (1.0 / self.batch_size) * grad_output.sum(0)
-
+            #self.grad_bias = (1.0 / self.batch_size) * grad_output.sum(0)
+            self.grad_bias = grad_output.mean((0,1))
         return grad_input
 
     def update(self) -> None:
@@ -487,7 +487,7 @@ class MultiHeadAttention:
         dropout: float = 0.1,
         c_attn_weight_init_func: Union[Callable, None] = None,
         c_proj_weight_init_func: Union[Callable, None] = None,
-        bias_init_func: Union[Callable, None] = None,
+        bias_init_func: Union[Callable, None] = None, # this will be zeros(shape)
     ) -> None:
 
         self.d_model = d_model
@@ -511,7 +511,7 @@ class MultiHeadAttention:
             batch_size,
             lr,
             weight_init_func=c_attn_weight_init_func,
-            bias_init_func=bias_init_func,
+            bias_init_func=bias_init_func, # this will be zeros(shape)
         )
 
         self.c_proj = Linear(
@@ -520,7 +520,7 @@ class MultiHeadAttention:
             batch_size,
             lr,
             weight_init_func=c_proj_weight_init_func,
-            bias_init_func=bias_init_func,
+            bias_init_func=bias_init_func, # this will be zeros(shape)
         )
 
         self.mask = cp.tril(
