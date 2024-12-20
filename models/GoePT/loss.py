@@ -17,7 +17,7 @@ def cross_entropy_loss(y_pred: ArrayLike, y_true: ArrayLike) -> cp.ndarray:
     # test out log_softmax:
     log_softmax = y_pred - np.log(
         np.sum(
-            np.exp(y_pred - np.max(y_pred, axis=-1, keepdims=True)),
+            np.exp(y_pred),
             axis=-1,
             keepdims=True,
         )

@@ -306,7 +306,7 @@ def main():
     global step
     step = 1
     wandb.init(
-        mode="disabled",  # disable wandb
+        # mode="disabled",  # disable wandb
         # Set the project where this run will be logged
         project="tfs",
         # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
