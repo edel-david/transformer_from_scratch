@@ -522,7 +522,8 @@ class MultiHeadAttention:
             weight_init_func=c_proj_weight_init_func,
             bias_init_func=bias_init_func, # this will be zeros(shape)
         )
-
+    
+        # This forces the input to be context_size long, crashing on smaller input lengths: fix in forward()
         self.mask = cp.tril(
             cp.ones((context_size, context_size), dtype=cp.float64)
         ).reshape(1, 1, context_size, context_size)
@@ -560,8 +561,18 @@ class MultiHeadAttention:
 
         attn = (q @ k.transpose(0, 1, 3, 2)) * (1.0 / math.sqrt(k.shape[-1]))
         # k.shape[-1] == C // self.n_heads == multi_head_attention_head_dim == depth
+        
+        
+        # inference fix for smaller T:
+        # TODO: find way to only use this for inference, could hurt performance for training. 
+        self.mask = cp.tril(
+            cp.ones((T, T), dtype=cp.float64)
+        ).reshape(1, 1, T, T)
 
         attn = cp.where(self.mask == 0, -1e9, attn)
+        
+        
+
         attn = self.softmax_attn.forward(attn)
         attn = self.attn_dropout.forward(attn, train)
 
