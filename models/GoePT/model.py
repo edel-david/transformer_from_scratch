@@ -306,7 +306,7 @@ def main():
     global step
     step = 1
     wandb.init(
-        mode = "disabled", # disable wandb
+        mode="disabled",  # disable wandb
         # Set the project where this run will be logged
         project="tfs",
         # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
@@ -327,7 +327,7 @@ def main():
     ic(tokenizer)
 
     cp.random.seed(args.seed)
-
+    np.random.seed(args.seed)
     model = GoePT(batch_size=args.batch_size, lr=args.lr)
     ic(model)
     # state_dict = model.state_dict()
@@ -487,7 +487,7 @@ def main_infer():
         # Set the project where this run will be logged
         project="tfs_infer",
         # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
-        name=f"tfs_infer" + os.uname()[1] + "_" + time.strftime("%Y%m%d-%H%M%S"),
+        name="tfs_infer" + os.uname()[1] + "_" + time.strftime("%Y%m%d-%H%M%S"),
         # Track hyperparameters and run metadata
         config={
             "architecture": "transformer",
