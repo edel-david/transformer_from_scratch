@@ -344,7 +344,7 @@ def main():
     ic(tokenizer)
 
     cp.random.seed(args.seed)
-
+    np.random.seed(args.seed)
     model = GoePT(batch_size=args.batch_size, lr=args.lr)
     ic(model)
 
@@ -505,7 +505,7 @@ def main_infer():
         mode="disabled",
         project="tfs_infer",
         # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
-        name=f"tfs_infer" + os.uname()[1] + "_" + time.strftime("%Y%m%d-%H%M%S"),
+        name="tfs_infer" + os.uname()[1] + "_" + time.strftime("%Y%m%d-%H%M%S"),
         # Track hyperparameters and run metadata
         config={
             "architecture": "transformer",
