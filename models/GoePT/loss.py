@@ -16,5 +16,7 @@ def cross_entropy_loss(y_pred: ArrayLike, y_true: ArrayLike) -> cp.ndarray:
     # sm = Softmax(axis=-1)
     # outputs = sm.forward(y_pred)
 
-    loss = -cp.sum(y_true * cp.log(y_pred + 1e-9)) / y_true.shape[0]
+    # no softmax, because idk it works better, don't ask me why
+
+    loss = -cp.sum(y_true * cp.log(y_pred + 1e-9)) / y_true.shape[0] # + 1e-9 is not necessary because of the clip, but we trained with it and it should not matter much
     return loss
