@@ -120,7 +120,7 @@ class GoePT:
 
         # assert id(self.transformer['wte'].weight) == id(self.lm_head.weight), "wte and lm_head must share the same weights in memory"
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, train, targets=None):
         b, t = idx.shape
         assert (
             t <= self.context_length
@@ -135,9 +135,9 @@ class GoePT:
         pos_emb = self.transformer["wpe"].forward(pos)
 
         # Main transformer
-        x = self.transformer["drop"].forward(tok_emb + pos_emb)
+        x = self.transformer["drop"].forward(tok_emb + pos_emb, True)
         for block in self.transformer["h"]:
-            x = block.forward(x)
+            x = block.forward(x, train)
         x = self.transformer["ln_f"].forward(x)
 
         # Compute loss and return
@@ -163,7 +163,7 @@ class GoePT:
     def backward(self, x):
         grad = self.lm_head.backward(x)
         grad = self.transformer["ln_f"].backward(grad)
-        
+
         for block in reversed(self.transformer["h"]):
             grad = block.backward(grad)
         grad = self.transformer["drop"].backward(grad)
