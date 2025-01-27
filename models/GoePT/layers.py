@@ -671,7 +671,7 @@ class Embedding:
         # https://paperswithcode.com/method/weight-tying
 
         # ??? TODO: check if correct
-        if not isinstance(type(weight_external), NoneType):
+        if isinstance(type(weight_external), NoneType):
             if self.init_func:
                 self.weight = cp.asanyarray(
                     self.init_func((num_embeddings, embedding_dim))

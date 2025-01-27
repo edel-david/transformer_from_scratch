@@ -34,6 +34,7 @@ class GoePT:
 
     def __init__(
         self,
+        n_genres:int,
         vocab_size: int = 8192,
         context_length: int = 256,
         batch_size: int = 64,
@@ -70,7 +71,8 @@ class GoePT:
 
         self.lm_head = scr.Linear(
             self.n_embd,
-            self.vocab_size,
+            # self.vocab_size, OLD
+            self.n_genres,
             self.batch_size,
             bias=False,
             lr=self.lr,
@@ -84,7 +86,8 @@ class GoePT:
                 self.n_embd,
                 self.batch_size,
                 self.lr,
-                weight_external=self.lm_head.weight_transposed,
+                init_func=weight_init
+                # weight_external=self.lm_head.weight_transposed, # Old, weight tying not possible with vocab_size != #classes
             ),
             "wpe": scr.Embedding(
                 self.context_length,
@@ -141,10 +144,11 @@ class GoePT:
         x = self.transformer["ln_f"].forward(x)
 
         # Compute loss and return
-        if targets is not None:
-            # if we are given some desired targets also calculate the loss<
-            logits = self.lm_head.forward(x)
-
+        if targets is not None: # branch on knowledge of right answer: If known, calculate loss. else only return logits.
+        # if we are given some desired targets also calculate the loss<
+        # in both cases, we only apply the lm_head to the first token. 
+            
+            logits = self.lm_head.forward(x[:, [0], :]) # pass the first token, the classification token, to the lm_head.
             ic(logits.shape, targets.shape)
             logits_for_loss = logits.reshape(-1, logits.shape[-1])
             targets_for_loss = np.expand_dims(targets.reshape(-1), 1)
@@ -153,8 +157,9 @@ class GoePT:
             loss = cross_entropy_loss(logits_for_loss, targets_for_loss)
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
+            # midi: assume x has shape (B,T,C). 
             logits = self.lm_head.forward(
-                x[:, [-1], :]
+                x[:, [0], :]
             )  # note: using list [-1] to preserve the time dim
             loss = None
 

@@ -2,6 +2,7 @@ import sys
 import os
 import datetime
 import argparse
+import wandb
 from functools import partial
 from collections import deque
 from types import NoneType
@@ -11,6 +12,11 @@ import cupy as cp
 import numpy as np
 
 xp = cp
+n_genres = ...
+n_blocks = 6
+n_embd = 384
+dropout = 0.1
+# context len gets passed by args for some reason
 
 # from sklearn.metrics import root_mean_squared_error
 from rich.progress import Progress
@@ -27,7 +33,9 @@ from model import GoePT
 ic.configureOutput(includeContext=True)
 ic.disable()
 
-import wandb
+
+# for midi read_dataset, either prepend the class label (one unit16 maybe)
+# or make a seperate file.
 
 
 def read_datasets(split, data_dir, context_length, batch_size, rng):
@@ -46,7 +54,9 @@ def read_datasets(split, data_dir, context_length, batch_size, rng):
     ix = rng.integers(len(data) - context_length, size=(batch_size,))
 
     x = np.stack([(data[i : i + context_length].astype(np.int64)) for i in ix])
-    y = np.stack([(data[i + 1 : i + 1 + context_length].astype(np.int64)) for i in ix])
+
+    # this line is wrong for midi.
+    # y = np.stack([(data[i + 1 : i + 1 + context_length].astype(np.int64)) for i in ix])
 
     return x, y
 
@@ -147,10 +157,11 @@ def main():
     )
 
     model = GoePT(
+        n_genres,
         context_length=args.context_length,
-        n_layer=6,
-        n_embd=384,
-        dropout=0.1,
+        n_layer=n_blocks,
+        n_embd=n_embd,
+        dropout=dropout,
         batch_size=args.batch_size,
         lr=args.lr,
     )
@@ -223,7 +234,9 @@ def main():
                 # disable logging into csv. Use wandb instead
 
                 # Get raw gradient
-                raw_grad, target = compute_gradient(Y, logits, one_hot_lookup)
+                raw_grad, target = compute_gradient(
+                    Y, logits, one_hot_lookup
+                )  # target is Y but one-hot-stacked
 
                 # Continue backward
                 grad = loss * raw_grad
