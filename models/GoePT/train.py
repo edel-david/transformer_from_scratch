@@ -30,7 +30,6 @@ ic.disable()
 import wandb
 
 
-
 def read_datasets(split, data_dir, context_length, batch_size, rng):
     # We recreate np.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
@@ -72,7 +71,7 @@ def get_log_output_table(log_output_buffer: deque) -> Table:
 
 
 def main():
-    
+
     # Training settings
     parser = argparse.ArgumentParser(description="NanoGPT from scratch")
     parser.add_argument(
@@ -213,7 +212,7 @@ def main():
             ):
 
                 X, Y = get_batch("train")
-
+                X, Y = cp.asarray(X), cp.asarray(Y)
                 logits, loss = model.forward(X, Y, True)
                 wandb.log({"train_loss": loss.item()}, step=step)
                 # Scale the loss to account for gradient accumulation
@@ -264,7 +263,7 @@ def main():
                 ):
 
                     X, Y = get_batch("val")
-
+                    X, Y = cp.asarray(X), cp.asarray(Y)
                     logits, loss = model.forward(X, Y, False)
 
                     losses_val[k] = loss.item()
