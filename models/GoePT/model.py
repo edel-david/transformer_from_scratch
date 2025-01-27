@@ -120,7 +120,7 @@ class GoePT:
 
         # assert id(self.transformer['wte'].weight) == id(self.lm_head.weight), "wte and lm_head must share the same weights in memory"
 
-    def forward(self, idx, train, targets=None):
+    def forward(self, idx, targets=None, train=False):
         b, t = idx.shape
         assert (
             t <= self.context_length
