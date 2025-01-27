@@ -111,7 +111,7 @@ class Linear:
                 else (cp.prod(cp.array(mat_b.shape[:-1])).item(), mat_b.shape[-1])
             )
 
-            mat_a_shape = mat_a.shape[::-1] if transpose_a else mat_a.shape
+            # mat_a_shape = mat_a.shape[::-1] if transpose_a else mat_a.shape
             mat_b_shape = mat_b.shape[::-1] if transpose_b else mat_b.shape
 
             dims_out_first = (

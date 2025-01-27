@@ -10,7 +10,7 @@ import time
 import cupy as cp
 import numpy as np
 
-xp = np
+xp = cp
 
 # from sklearn.metrics import root_mean_squared_error
 from rich.progress import Progress
@@ -45,8 +45,8 @@ def read_datasets(split, data_dir, context_length, batch_size, rng):
 
     ix = rng.integers(len(data) - context_length, size=(batch_size,))
 
-    x = xp.stack([(data[i : i + context_length].astype(np.int64)) for i in ix])
-    y = xp.stack([(data[i + 1 : i + 1 + context_length].astype(np.int64)) for i in ix])
+    x = np.stack([(data[i : i + context_length].astype(np.int64)) for i in ix])
+    y = np.stack([(data[i + 1 : i + 1 + context_length].astype(np.int64)) for i in ix])
 
     return x, y
 
