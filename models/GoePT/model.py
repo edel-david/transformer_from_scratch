@@ -1,12 +1,3 @@
-"""
-Group 1:
-for Transformers from scratch at Uni Heidelberg is WS 2024/25
-
-This is the old model.py file with the new train.py train loop fix
-main_infer is old and not used. use the notebook for inference
-"""
-
-
 import sys
 import os
 import math
@@ -14,17 +5,14 @@ import time
 import argparse
 from functools import partial
 import json
-import cupy as cp
+
 import numpy as np
-from collections import deque
-import wandb
-import datetime
+
 from tokenizers import Tokenizer
 from rich.progress import Progress
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
-from rich.table import Table
 from icecream import ic
 
 sys.path.append(".")
@@ -36,10 +24,7 @@ from utils import compress_numpy_array, decompress_numpy_array
 import warnings
 
 warnings.filterwarnings("error")
-from utils import log
-xp = cp
-global step
-step = 0
+
 
 ic.configureOutput(includeContext=True)
 ic.disable()
@@ -66,18 +51,18 @@ class GoePT:
         self.dropout = dropout
         self.lr = lr
 
-        self.rng = cp.random.default_rng()
+        self.rng = np.random.default_rng()
 
         def weight_init(size):
-            return cp.random.normal(size=size, loc=0.0, scale=0.02).astype(cp.float64)
+            return self.rng.normal(size=size, loc=0.0, scale=0.02).astype(np.float32)
 
         def c_proj_weight_init(size):
-            return cp.random.normal(
+            return self.rng.normal(
                 size=size, loc=0.0, scale=0.02 / math.sqrt(2 * self.n_layer)
-            ).astype(cp.float64)
+            ).astype(np.float32)
 
         def bias_init(size):
-            return cp.zeros(shape=size, dtype=cp.float64)
+            return np.zeros(shape=size, dtype=np.float32)
 
         # Define lm_head first so we can pass its
         # weights_transposed property to the wte
@@ -94,7 +79,6 @@ class GoePT:
         )
 
         self.transformer = {
-            # word token embedding
             "wte": scr.Embedding(
                 self.vocab_size,
                 self.n_embd,
@@ -102,7 +86,6 @@ class GoePT:
                 self.lr,
                 weight_external=self.lm_head.weight_transposed,
             ),
-            # Word position embedding
             "wpe": scr.Embedding(
                 self.context_length,
                 self.n_embd,
@@ -135,17 +118,15 @@ class GoePT:
 
         # self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
 
-        # assert id(self.transformer['wte'].weight) == id(self.lm_head.weight), "wte and lm_head must share the
-        # same weights in memory"
+        # assert id(self.transformer['wte'].weight) == id(self.lm_head.weight), "wte and lm_head must share the same weights in memory"
 
     def forward(self, idx, targets=None):
-        global step
         b, t = idx.shape
         assert (
             t <= self.context_length
         ), f"Cannot forward sequence of length {t}, block size is only {self.context_length}"
-        pos = cp.arange(0, t, dtype=cp.int64)  # shape (t)
-        train = True if targets is not None else False
+        pos = np.arange(0, t, dtype=np.int64)  # shape (t)
+
         # Forward the GPT model itself
         # Token embeddings of shape (b, t, n_embd)
         tok_emb = self.transformer["wte"].forward(idx)
@@ -154,12 +135,11 @@ class GoePT:
         pos_emb = self.transformer["wpe"].forward(pos)
 
         # Main transformer
-        x = self.transformer["drop"].forward(tok_emb + pos_emb, train)
+        x = self.transformer["drop"].forward(tok_emb + pos_emb)
         for block in self.transformer["h"]:
-            x = block.forward(x, train)
-        wandb.log({"x_after_block_mean": x.mean().item()}, step=step)
+            x = block.forward(x)
         x = self.transformer["ln_f"].forward(x)
-        wandb.log({"pos_embed_mean": pos_emb.mean().item()}, step=step)
+
         # Compute loss and return
         if targets is not None:
             # if we are given some desired targets also calculate the loss<
@@ -167,7 +147,7 @@ class GoePT:
 
             ic(logits.shape, targets.shape)
             logits_for_loss = logits.reshape(-1, logits.shape[-1])
-            targets_for_loss = cp.expand_dims(targets.reshape(-1), 1)
+            targets_for_loss = np.expand_dims(targets.reshape(-1), 1)
             targets_for_loss = scr.one_hot(targets_for_loss, 8192)
 
             loss = cross_entropy_loss(logits_for_loss, targets_for_loss)
@@ -177,27 +157,18 @@ class GoePT:
                 x[:, [-1], :]
             )  # note: using list [-1] to preserve the time dim
             loss = None
+
         return logits, loss
 
     def backward(self, x):
-        # we can assume that train is on if we do backwards, so output of forward was:
-        # (B x Context T x Vocab_dim)
-        # the input x is: grad of forward pass = loss * raw_grad
-        # x is del L / del logits ??!?
-        global step
-        log("back_start", x, step)
-        grad1 = self.lm_head.backward(x)
-        log("grad1", grad1, step)
-        grad2 = self.transformer["ln_f"].backward(grad1)
-        log("grad2", grad2)
-        grad3 = grad2.copy()
+        grad = self.lm_head.backward(x)
+        grad = self.transformer["ln_f"].backward(grad)
+        
         for block in reversed(self.transformer["h"]):
-            grad3 = block.backward(grad3)
-        log("grad3", grad3)
-        grad4 = self.transformer["drop"].backward(grad3)
-        log("grad4", grad4)
-        self.transformer["wte"].backward(grad4)
-        self.transformer["wpe"].backward(grad4.sum(axis=0))
+            grad = block.backward(grad)
+        grad = self.transformer["drop"].backward(grad)
+        self.transformer["wte"].backward(grad)
+        self.transformer["wpe"].backward(grad.sum(axis=0))
         return
 
     def update(self):
@@ -205,7 +176,6 @@ class GoePT:
         self.transformer["ln_f"].update()
         for block in self.transformer["h"]:
             block.update()
-            pass
         self.transformer["wte"].update()
         self.transformer["wpe"].update()
         return
@@ -277,355 +247,3 @@ class GoePT:
             block.load_params(state_dict["params"][f"block_{idx}"])
 
         return goe_pt
-
-
-import mmap
-
-
-def read_datasets(split, data_dir, context_length, batch_size, rng):
-    # We recreate np.memmap every batch to avoid a memory leak, as per
-    # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
-
-    if split == "train":
-        data = np.memmap(os.path.join(data_dir, "train.bin"), dtype=np.uint16, mode="r")
-    else:
-        data = np.memmap(os.path.join(data_dir, "val.bin"), dtype=np.uint16, mode="r")
-
-    ix = rng.integers(len(data) - context_length, size=(batch_size,))
-
-    x = np.stack([(data[i : i + context_length].astype(np.int64)) for i in ix])
-    y = np.stack([(data[i + 1 : i + 1 + context_length].astype(np.int64)) for i in ix])
-
-    return x, y
-
-
-def compute_gradient(target, prediction, one_hot_lookup):
-    target = xp.stack([one_hot_lookup[token] for token in target])
-    return (prediction - target), target
-
-
-def get_log_output_table(log_output_buffer: deque) -> Table:
-
-    table = Table()
-
-    table.add_column("Time", style="cyan", no_wrap=True)
-    table.add_column("Epoch", style="cyan")
-    table.add_column("Train loss", style="green")
-
-    for timestamp, epoch, loss in log_output_buffer:
-        table.add_row(f"{timestamp}", f"{epoch}", f"{loss:.5e}")
-
-    return table
-
-
-def main():
-    # Training settings
-    global step
-    step = 1
-    wandb.init(
-        # mode="disabled",  # disable wandb
-        # Set the project where this run will be logged
-        project="tfs",
-        # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
-        name=f"tfs{args.lr}_" + os.uname()[1] + "_" + time.strftime("%Y%m%d-%H%M%S"),
-        # Track hyperparameters and run metadata
-        config={
-            "learning_rate": args.lr,
-            "architecture": "transformer",
-            "dataset": "goethe",
-            "epochs": args.epochs,
-        },
-    )
-
-    os.makedirs(args.checkpoint_dir, exist_ok=True)
-
-    tokenizer = Tokenizer.from_file(args.vocab_file)
-
-    ic(tokenizer)
-
-    cp.random.seed(args.seed)
-    np.random.seed(args.seed)
-    model = GoePT(batch_size=args.batch_size, lr=args.lr)
-    ic(model)
-
-    # use this to continue training from a checkpoint
-
-    # state_dict = model.state_dict()
-    # with open(os.path.join(args.checkpoint_dir, 'test_checkpoint.json'), mode='w', encoding='utf-8') as out_file:
-    #     json.dump(state_dict, out_file)
-    # with open(os.path.join(args.checkpoint_dir, 'test_checkpoint.json'), mode='r', encoding='utf-8') as in_file:
-    #     state_dict = json.load(in_file)
-    # model_loaded = GoePT.from_state_dict(state_dict)
-    # ic(model_loaded)
-    # exit()
-
-    # training loop
-
-    rng = np.random.default_rng(args.seed)
-
-    # read_dataset still uses numpy, batches get converted to cupy later
-
-    get_batch = partial(
-        read_datasets,
-        data_dir=args.data_dir,
-        context_length=args.context_length,
-        batch_size=args.batch_size,
-        rng=rng,
-    )
-
-    # Pre-generate one-hot vectors using the vocab size
-    # for gradient computation
-    one_hot_lookup = cp.eye(8192)
-
-    t0 = time.time()
-
-    iter_num = 0
-
-    best_val_loss = 1e9
-
-    status_console = Console()
-    status = status_console.status("[bold green]Starting training...", spinner="runner")
-    progress_step = Progress(transient=True)
-    header_panel = Panel(Group(status, progress_step))
-
-    log_output_buffer = deque([], maxlen=16)
-
-    table_update_func = partial(
-        get_log_output_table, log_output_buffer=log_output_buffer
-    )
-
-    # with status_console.screen():
-    with Live(header_panel):
-
-        while True:
-            # progress_step.console.print(f'Starting epoch: {iter_num + 1}')
-            status.update(f"[bold green]Training epoch {iter_num + 1} ...")
-
-            task_id = progress_step.add_task("Training")
-
-            for micro_step in progress_step.track(
-                range(args.gradient_accumulation_steps),
-                total=args.gradient_accumulation_steps,
-                task_id=task_id,
-            ):
-                step += 1
-                X, Y = get_batch("train")
-                X, Y = cp.asarray(X), cp.asarray(Y)
-                logits, loss = model.forward(X, Y)
-                wandb.log({"train_loss": loss.item()}, step=step)
-                # Scale the loss to account for gradient accumulation
-                loss = loss / args.gradient_accumulation_steps
-
-                with open("train_losses.csv", "a") as f:
-                    f.write(f"{iter_num}\t{loss:.8f}\n")
-
-                # Get raw gradient
-                raw_grad, target = compute_gradient(Y, logits, one_hot_lookup)
-
-                # Continue backward
-                grad = loss * raw_grad
-
-                model.backward(grad)
-
-                log_output_buffer.append(
-                    (
-                        datetime.datetime.now().isoformat(),
-                        iter_num + 1,
-                        loss.item() * args.gradient_accumulation_steps,
-                    )
-                )
-
-                progress_step.console.clear()
-                progress_step.console.print(table_update_func())
-                progress_step.advance(task_id)
-
-            progress_step.remove_task(task_id)
-
-            task_id = progress_step.add_task("Updating model")
-
-            model.update()
-
-            progress_step.remove_task(task_id)
-
-            # Evaluate the loss on train/val sets and write checkpoints
-
-            if iter_num % args.eval_interval == 0:
-
-                losses_val = xp.zeros(args.eval_iters)
-
-                task_id = progress_step.add_task(f"Val loss evaluation")
-
-                for k in progress_step.track(
-                    range(args.eval_iters), total=args.eval_iters, task_id=task_id
-                ):
-
-                    X, Y = get_batch("val")
-                    X, Y = cp.asarray(X), cp.asarray(Y)
-                    logits, loss = model.forward(X, Y)
-
-                    losses_val[k] = loss.item()
-
-                    progress_step.advance(task_id)
-
-                progress_step.remove_task(task_id)
-
-                loss_val_mean = losses_val.mean()
-                wandb.log({"val_loss": loss_val_mean.item()}, step=step)
-                if loss_val_mean < best_val_loss:
-
-                    status_update_string = f"Val loss decreased from {best_val_loss:.4f} to {loss_val_mean:.4f}"
-
-                    status_update_string += ". Saving checkpoint..."
-
-                    status.update(status_update_string)
-
-                    checkpoint_path = os.path.join(
-                        args.checkpoint_dir, f"goe_pt_iter_{iter_num}.json"
-                    )
-
-                    state_dict = model.state_dict()
-
-                    with open(checkpoint_path, mode="w", encoding="utf-8") as out_file:
-                        json.dump(state_dict, out_file)
-
-                    status.update(f"Saved checkpoint under {checkpoint_path}")
-
-                    best_val_loss = loss_val_mean
-
-            iter_num += 1
-
-            # termination conditions
-            if iter_num > args.epochs:
-                break
-
-
-def main_infer():
-    wandb.init(
-        # Set the project where this run will be logged
-        mode="disabled",
-        project="tfs_infer",
-        # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
-        name="tfs_infer" + os.uname()[1] + "_" + time.strftime("%Y%m%d-%H%M%S"),
-        # Track hyperparameters and run metadata
-        config={
-            "architecture": "transformer",
-            "dataset": "goethe",
-        },
-    )
-    cp.random.seed(args.seed)
-    checkpoint_filename = "goe_pt_iter_200.json"
-    with open(
-        os.path.join(args.checkpoint_dir, checkpoint_filename),
-        mode="r",
-        encoding="utf-8",
-    ) as in_file:
-        state_dict = json.load(in_file)
-    model_loaded = GoePT.from_state_dict(state_dict)
-    ic(checkpoint_filename)
-    ic(model_loaded)
-    text = "Faust wollte"
-    non_padded_tokenized = cp.array(tokenizer.encode(text).ids)
-    # tokenized = cp.full((256,), 2)
-    # tokenized[-non_padded_tokenized.shape[0] :] = non_padded_tokenized
-    tokenized = non_padded_tokenized
-    tokenized = tokenized.reshape((1, -1))
-
-    while tokenized[(0, 0)] == 2:  # shape.0 is batch (1) and shape.1 is context_length
-
-        logits, _ = model_loaded.forward(
-            tokenized,
-        )
-        # from layers import Softmax
-        # sm = Softmax(-1)
-        # probabilities = sm.forward(logits.squeeze())
-        # chosen_token = cp.random.choice(
-        #     cp.arange(probabilities.shape[0]), size=1, p=probabilities.squeeze()
-        # )
-        # new_token = tokenizer.decode((chosen_token.item(),))
-        id_next = logits.squeeze().argmax()
-        print(id_next)
-        new_token = tokenizer.decode((id_next.item(),))
-        text += new_token
-        print(text)
-        non_padded_tokenized = cp.array(tokenizer.encode(text).ids)
-        tokenized = cp.full((256,), 2)
-        tokenized[-non_padded_tokenized.shape[0] :] = non_padded_tokenized
-        tokenized = tokenized.reshape((1, -1))
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="NanoGPT from scratch")
-    parser.add_argument(
-        "--data-dir", type=str, default="datasets/tokenized/", help="Dataset directory"
-    )
-    parser.add_argument(
-        "--checkpoint-dir",
-        type=str,
-        default="checkpoints/",
-        help="Checkpoint directory",
-    )
-    parser.add_argument(
-        "--vocab-file",
-        type=str,
-        default="models/tokenizers/goe_pt/goe_pt_tokenizer.json",
-        help="Vocabulary file",
-    )
-
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=16,
-        metavar="N",
-        help="input batch size for training (default: 16)",
-    )
-    parser.add_argument("--context-length", type=int, default=256)
-    parser.add_argument(
-        "--epochs",
-        type=int,
-        default=14,
-        metavar="N",
-        help="number of epochs to train (default: 14)",
-    )
-    parser.add_argument(
-        "--gradient-accumulation-steps", type=int, default=32, metavar="N"
-    )
-    parser.add_argument("--eval-iters", type=int, default=200, metavar="N")
-    parser.add_argument(
-        "--lr",
-        type=float,
-        default=0.1,
-        metavar="LR",
-        help="learning rate (default: 0.1)",
-    )
-    parser.add_argument(
-        "--seed", type=int, default=1, metavar="S", help="random seed (default: 1)"
-    )
-    parser.add_argument(
-        "--log-interval",
-        type=int,
-        default=100,
-        metavar="N",
-        help="how many batches to wait before logging training status",
-    )
-    parser.add_argument(
-        "--eval-interval",
-        type=int,
-        default=100,
-        metavar="N",
-        help="how many batches to wait before logging training status",
-    )
-
-    parser.add_argument(
-        "--tokenizer",
-        type=str,
-        default="./models/tokenizers/goe_pt/" "goe_pt_tokenizer.json",
-    )
-
-    args = parser.parse_args()
-    tokenizer: Tokenizer = Tokenizer.from_file(args.tokenizer)
-    with open("apikey.txt", "r") as readfile:
-        api_key = readfile.read().strip()
-
-    wandb.login(key=api_key)
-    main()
-    # main_infer()

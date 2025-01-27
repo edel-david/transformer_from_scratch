@@ -37,7 +37,7 @@ class Linear:
         lr: float = 0.1,
         bias: bool = True,
         weight_init_func: Union[Callable, None] = None,
-        bias_init_func: Union[Callable, None] = None, # this will be zeros(shape)
+        bias_init_func: Union[Callable, None] = None,  # this will be zeros(shape)
     ) -> None:
 
         super(Linear, self).__init__()
@@ -162,19 +162,21 @@ class Linear:
         #     grad_output.shape[-1],
         # )
 
-        self.grad_weight = (1.0 / self.batch_size) * self._multi_dim_matmul(
+        self.grad_weight += (1.0 / self.batch_size) * self._multi_dim_matmul(
             self.input, grad_output, transpose_a=True, reshape_output=False
         )
 
         if self.use_bias:
-            #self.grad_bias = (1.0 / self.batch_size) * grad_output.sum(0)
-            self.grad_bias = grad_output.mean((0,1))
+            # self.grad_bias = (1.0 / self.batch_size) * grad_output.sum(0)
+            self.grad_bias += grad_output.mean((0, 1))
         return grad_input
 
     def update(self) -> None:
         self.weight = self.weight - self.lr * self.grad_weight
         if self.use_bias:
             self.bias = self.bias - self.lr * self.grad_bias
+        self.grad_weight.fill(0)
+        self.grad_bias.fill(0)
 
     @property
     def weight_transposed(self):
@@ -344,8 +346,8 @@ class LayerNorm:
         return grad_x
 
     def backward(self, upstream_grad: ArrayLike) -> ArrayLike:
-        self.grad_bias = upstream_grad.mean(axis=(0, 1))  # upstream gradient * 1.
-        self.grad_weight = (upstream_grad * (self.x_centered * self.stddev_inv)).mean(
+        self.grad_bias += upstream_grad.mean(axis=(0, 1))  # upstream gradient * 1.
+        self.grad_weight += (upstream_grad * (self.x_centered * self.stddev_inv)).mean(
             axis=(0, 1)
         )  # upstream * centered * invvar
 
@@ -368,6 +370,8 @@ class LayerNorm:
     def update(self):
         self.weight -= self.lr * self.grad_weight
         self.bias -= self.lr * self.grad_bias
+        self.grad_weight.fill(0)
+        self.grad_bias.fill(0)
         return
 
 
@@ -487,7 +491,7 @@ class MultiHeadAttention:
         dropout: float = 0.1,
         c_attn_weight_init_func: Union[Callable, None] = None,
         c_proj_weight_init_func: Union[Callable, None] = None,
-        bias_init_func: Union[Callable, None] = None, # this will be zeros(shape)
+        bias_init_func: Union[Callable, None] = None,  # this will be zeros(shape)
     ) -> None:
 
         self.d_model = d_model
@@ -511,7 +515,7 @@ class MultiHeadAttention:
             batch_size,
             lr,
             weight_init_func=c_attn_weight_init_func,
-            bias_init_func=bias_init_func, # this will be zeros(shape)
+            bias_init_func=bias_init_func,  # this will be zeros(shape)
         )
 
         self.c_proj = Linear(
@@ -520,9 +524,9 @@ class MultiHeadAttention:
             batch_size,
             lr,
             weight_init_func=c_proj_weight_init_func,
-            bias_init_func=bias_init_func, # this will be zeros(shape)
+            bias_init_func=bias_init_func,  # this will be zeros(shape)
         )
-    
+
         # This forces the input to be context_size long, crashing on smaller input lengths: fix in forward()
         self.mask = cp.tril(
             cp.ones((context_size, context_size), dtype=cp.float64)
@@ -561,17 +565,12 @@ class MultiHeadAttention:
 
         attn = (q @ k.transpose(0, 1, 3, 2)) * (1.0 / math.sqrt(k.shape[-1]))
         # k.shape[-1] == C // self.n_heads == multi_head_attention_head_dim == depth
-        
-        
+
         # inference fix for smaller T:
-        # TODO: find way to only use this for inference, could hurt performance for training. 
-        self.mask = cp.tril(
-            cp.ones((T, T), dtype=cp.float64)
-        ).reshape(1, 1, T, T)
+        # TODO: find way to only use this for inference, could hurt performance for training.
+        self.mask = cp.tril(cp.ones((T, T), dtype=cp.float64)).reshape(1, 1, T, T)
 
         attn = cp.where(self.mask == 0, -1e9, attn)
-        
-        
 
         attn = self.softmax_attn.forward(attn)
         attn = self.attn_dropout.forward(attn, train)
