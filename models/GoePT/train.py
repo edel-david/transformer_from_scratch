@@ -214,7 +214,7 @@ def main():
 
                 X, Y = get_batch("train")
 
-                logits, loss = model.forward(X, Y,true)
+                logits, loss = model.forward(X, Y, True)
                 wandb.log({"train_loss": loss.item()}, step=step)
                 # Scale the loss to account for gradient accumulation
                 loss = loss / args.gradient_accumulation_steps

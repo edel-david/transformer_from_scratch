@@ -754,7 +754,7 @@ class Block:
             bias_init_func=bias_init_func,
         )
 
-    def forward(self, input: ArrayLike, train) -> cp.ndarray:
+    def forward(self, input: ArrayLike, train: bool) -> cp.ndarray:
 
         input = cp.asanyarray(input)
 
