@@ -285,23 +285,21 @@ class LayerNorm:
 
         self.weight_init_func = weight_init_func
         self.bias_init_func = bias_init_func
-
         if self.weight_init_func:
-            self.weight = cp.asanyarray(self.weight_init_func((normalized_shape)))
+            self.weight = cp.asanyarray(self.weight_init_func(self.normalized_shape))
+            self.grad_weight = cp.zeros(self.normalized_shape)
         else:
-            self.weight = cp.ones((normalized_shape), dtype=cp.float64)
+            self.weight = cp.ones(self.normalized_shape, dtype=cp.float64)
+            self.grad_weight = cp.zeros(self.normalized_shape, dtype=cp.float64)
         if self.bias_init_func:
-            self.bias = cp.asanyarray(self.bias_init_func((normalized_shape)))
+            self.bias = cp.asanyarray(self.bias_init_func(self.normalized_shape))
+            self.grad_bias = cp.zeros(self.normalized_shape, dtype=cp.float64)
         else:
-            self.bias = cp.zeros((normalized_shape), dtype=cp.float64)
-
+            self.bias = cp.zeros(self.normalized_shape, dtype=cp.float64)
+            self.grad_bias = cp.zeros(self.normalized_shape, dtype=cp.float64)
         self.axis = None
 
         self.input = None
-
-        self.grad_weight = None
-        self.grad_bias = None
-
         self.x_centered = None
         self.stddev_inv = None
 
