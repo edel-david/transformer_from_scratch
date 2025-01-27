@@ -15,7 +15,7 @@ import copy
 from types import NoneType
 from typing import Union, Callable
 import wandb
-from utils import log, log_one
+# from utils import log, log_one
 import numpy as np
 import cupy as cp
 
@@ -691,7 +691,6 @@ class Embedding:
 
     def forward(self, input: ArrayLike) -> cp.ndarray:
         global step
-        log_one(f"Embedding{self.num_embeddings}_max", self.weight.max().item())
         self.input = cp.asanyarray(input)
         return self.weight[self.input.astype(cp.int32), :]
 

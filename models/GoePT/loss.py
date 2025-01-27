@@ -10,6 +10,7 @@ def cross_entropy_loss(y_pred: ArrayLike, y_true: ArrayLike) -> cp.ndarray:
     """
     Compute cross entropy loss between true 1-hot encoded vector and softmax output of a predictor.
     """
+    y_pred = cp.clip(y_pred, eps, 1 - eps)
     # Make sure to not have log(0)
     
     # Compute cross entropy loss
@@ -18,5 +19,5 @@ def cross_entropy_loss(y_pred: ArrayLike, y_true: ArrayLike) -> cp.ndarray:
 
     # no softmax, because idk it works better, don't ask me why
 
-    loss = -cp.sum(y_true * cp.log(y_pred + 1e-9)) / y_true.shape[0] # + 1e-9 is not necessary because of the clip, but we trained with it and it should not matter much
+    loss = -cp.sum(y_true * cp.log(y_pred)) / y_true.shape[0]
     return loss

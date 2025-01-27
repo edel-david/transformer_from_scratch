@@ -6,8 +6,6 @@ import cupy as cp
 import base64
 import zlib
 import wandb
-global step
-step= 0
 
 def log(name,vector,step_arg=None):
     global step

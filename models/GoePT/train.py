@@ -273,7 +273,7 @@ def main():
                 progress_step.remove_task(task_id)
 
                 loss_val_mean = losses_val.mean()
-                wandb.log({"val_loss": loss_val_mean}, step=step)
+                wandb.log({"val_loss": loss_val_mean.item()}, step=step)
                 if loss_val_mean < best_val_loss:
 
                     status_update_string = f"Val loss decreased from {best_val_loss:.4f} to {loss_val_mean:.4f}"
