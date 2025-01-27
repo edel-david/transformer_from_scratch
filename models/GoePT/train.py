@@ -6,6 +6,7 @@ from functools import partial
 from collections import deque
 from types import NoneType
 import json
+import time
 import cupy as cp
 import numpy as np
 
@@ -26,7 +27,8 @@ from model import GoePT
 ic.configureOutput(includeContext=True)
 ic.disable()
 
-step = 0
+import wandb
+
 
 
 def read_datasets(split, data_dir, context_length, batch_size, rng):
@@ -70,6 +72,7 @@ def get_log_output_table(log_output_buffer: deque) -> Table:
 
 
 def main():
+    
     # Training settings
     parser = argparse.ArgumentParser(description="NanoGPT from scratch")
     parser.add_argument(
@@ -129,6 +132,21 @@ def main():
 
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
+    wandb.init(
+        # mode="disabled",  # disable wandb
+        # Set the project where this run will be logged
+        project="tfs",
+        # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
+        name=f"tfs{args.lr}_" + os.uname()[1] + "_" + time.strftime("%Y%m%d-%H%M%S"),
+        # Track hyperparameters and run metadata
+        config={
+            "learning_rate": args.lr,
+            "architecture": "transformer",
+            "dataset": "goethe",
+            "epochs": args.epochs,
+        },
+    )
+
     model = GoePT(
         context_length=args.context_length,
         n_layer=6,
@@ -178,6 +196,7 @@ def main():
         get_log_output_table, log_output_buffer=log_output_buffer
     )
 
+    step = 0
     # with status_console.screen():
     with Live(header_panel):
 
@@ -196,12 +215,13 @@ def main():
                 X, Y = get_batch("train")
 
                 logits, loss = model.forward(X, Y)
-
+                wandb.log({"train_loss": loss.item()}, step=step)
                 # Scale the loss to account for gradient accumulation
                 loss = loss / args.gradient_accumulation_steps
 
-                with open("train_losses.csv", "a") as f:
-                    f.write(f"{iter_num}\t{loss:.8f}\n")
+                # with open("train_losses.csv", "a") as f:
+                #     f.write(f"{iter_num}\t{loss:.8f}\n")
+                # disable logging into csv. Use wandb instead
 
                 # Get raw gradient
                 raw_grad, target = compute_gradient(Y, logits, one_hot_lookup)
@@ -222,7 +242,7 @@ def main():
                 progress_step.console.clear()
                 progress_step.console.print(table_update_func())
                 progress_step.advance(task_id)
-
+                step += 1
             progress_step.remove_task(task_id)
 
             task_id = progress_step.add_task("Updating model")
@@ -254,7 +274,7 @@ def main():
                 progress_step.remove_task(task_id)
 
                 loss_val_mean = losses_val.mean()
-
+                wandb.log({"val_loss": loss_val_mean}, step=step)
                 if loss_val_mean < best_val_loss:
 
                     status_update_string = f"Val loss decreased from {best_val_loss:.4f} to {loss_val_mean:.4f}"
