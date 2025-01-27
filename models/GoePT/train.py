@@ -12,7 +12,7 @@ import numpy as np
 
 xp = np
 
-from sklearn.metrics import root_mean_squared_error
+# from sklearn.metrics import root_mean_squared_error
 from rich.progress import Progress
 from rich.console import Console, Group
 from rich.live import Live
