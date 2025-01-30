@@ -9,6 +9,7 @@ import json
 import time
 import cupy as cp
 import numpy as np
+import optuna
 
 xp = cp
 
@@ -70,116 +71,36 @@ def get_log_output_table(log_output_buffer: deque) -> Table:
     return table
 
 
-def main():
+def objective(trial, args):
+    context_length = trial.suggest_int("context_length", 64, 1024)
+    n_embd = trial.suggest_int("n_embd", 64, 512)
+    n_layers = trial.suggest_int("n_layers", 2, 12)
+    batch_size = args.batch_size  # use big batch size for better GPU utilization, but
+    # how do we determine the biggest possible batch size?
+    lr_init = 0.05
 
-    # Training settings
-    parser = argparse.ArgumentParser(description="NanoGPT from scratch")
-    parser.add_argument(
-        "--data-dir", type=str, default="datasets/tokenized/", help="Dataset directory"
+    checkpoint_dir_path = (
+        args.checkpoint_dir + f"{trial.study.study_name}/{trial.number}/"
     )
-    parser.add_argument(
-        "--checkpoint-dir",
-        type=str,
-        default="checkpoints/",
-        help="Checkpoint directory",
-    )
-    parser.add_argument(
-        "--vocab-file",
-        type=str,
-        default="models/tokenizers/goe_pt/goe_pt_tokenizer.json",
-        help="Vocabulary file",
-    )
-
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=16,
-        metavar="N",
-        help="input batch size for training (default: 16)",
-    )
-    parser.add_argument("--context-length", type=int, default=256)
-    parser.add_argument(
-        "--epochs",
-        type=int,
-        default=14,
-        metavar="N",
-        help="number of epochs to train (default: 14)",
-    )
-    parser.add_argument(
-        "--gradient-accumulation-steps", type=int, default=32, metavar="N"
-    )
-    parser.add_argument("--eval-iters", type=int, default=200, metavar="N")
-    parser.add_argument(
-        "--lr",
-        type=float,
-        default=1e-3,
-        metavar="LR",
-        help="learning rate (default: 1e-3)",
-    )
-    parser.add_argument(
-        "--seed", type=int, default=42, metavar="S", help="random seed (default: 1)"
-    )
-    parser.add_argument(
-        "--eval-interval",
-        type=int,
-        default=100,
-        metavar="N",
-        help="how many batches to wait before logging training status",
-    )
-
-    args = parser.parse_args()
-
-    os.makedirs(args.checkpoint_dir, exist_ok=True)
-
-    wandb.init(
-        # mode="disabled",  # disable wandb
-        # Set the project where this run will be logged
-        project="tfs",
-        # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
-        name=f"tfs{args.lr}_" + os.uname()[1] + "_" + time.strftime("%Y%m%d-%H%M%S"),
-        # Track hyperparameters and run metadata
-        config={
-            "learning_rate": args.lr,
-            "architecture": "transformer",
-            "dataset": "goethe",
-            "epochs": args.epochs,
-        },
-    )
+    os.makedirs(checkpoint_dir_path, exist_ok=True)
 
     model = GoePT(
-        context_length=args.context_length,
-        n_layer=6,
-        n_embd=384,
+        context_length=context_length,
+        n_layer=n_layers,
+        n_embd=n_embd,
         dropout=0.1,
-        batch_size=args.batch_size,
-        lr=args.lr,
+        batch_size=batch_size,
+        lr=lr_init,
     )
-
-    # state_dict = model.state_dict()
-    # with open(os.path.join(args.checkpoint_dir, 'test_checkpoint.json'), mode='w', encoding='utf-8') as out_file:
-    #     json.dump(state_dict, out_file)
-    # with open(os.path.join(args.checkpoint_dir, 'test_checkpoint.json'), mode='r', encoding='utf-8') as in_file:
-    #     state_dict = json.load(in_file)
-    # model_loaded = GoePT.from_state_dict(state_dict)
-    # ic(model_loaded)
-    # exit()
-
-    # training loop
-
-    # rng = xp.random.default_rng(args.seed)
     np_rng = np.random.default_rng(args.seed)
     get_batch = partial(
         read_datasets,
         data_dir=args.data_dir,
         context_length=args.context_length,
-        batch_size=args.batch_size,
+        batch_size=batch_size,
         rng=np_rng,
     )
-
-    # Pre-generate one-hot vectors using the vocab size
-    # for gradient computation
     one_hot_lookup = xp.eye(8192)
-
     iter_num = 0
 
     best_val_loss = 1e9
@@ -194,11 +115,9 @@ def main():
     table_update_func = partial(
         get_log_output_table, log_output_buffer=log_output_buffer
     )
-
     step = 0
     # with status_console.screen():
     with Live(header_panel):
-
         while True:
             # progress_step.console.print(f'Starting epoch: {iter_num + 1}')
             status.update(f"[bold green]Training epoch {iter_num + 1} ...")
@@ -274,6 +193,7 @@ def main():
 
                 loss_val_mean = losses_val.mean()
                 wandb.log({"val_loss": loss_val_mean.item()}, step=step)
+
                 if loss_val_mean < best_val_loss:
 
                     status_update_string = f"Val loss decreased from {best_val_loss:.4f} to {loss_val_mean:.4f}"
@@ -283,7 +203,7 @@ def main():
                     status.update(status_update_string)
 
                     checkpoint_path = os.path.join(
-                        args.checkpoint_dir, f"goe_pt_iter_{iter_num}.json"
+                        checkpoint_dir_path, f"goe_pt_iter_{iter_num}.json"
                     )
 
                     state_dict = model.state_dict()
@@ -294,12 +214,90 @@ def main():
                     status.update(f"Saved checkpoint under {checkpoint_path}")
 
                     best_val_loss = loss_val_mean
-
+                trial.report(loss_val_mean.item(), iter_num)
+                if trial.should_prune():
+                    raise optuna.exceptions.TrialPruned()
             iter_num += 1
 
             # termination conditions
             if iter_num > args.epochs:
                 break
+    return best_val_loss if best_val_loss != 1e9 else loss.item()
+    # if epochs is smaller than eval iter,
+    # best_val_loss will not be updated, so return the train loss as instead.
+    # nevertheless, avoid this situation by setting epochs to a higher value than eval_iters
+
+
+def main():
+
+    # Training settings
+    parser = argparse.ArgumentParser(description="NanoGPT from scratch")
+    parser.add_argument(
+        "--data-dir", type=str, default="datasets/tokenized/", help="Dataset directory"
+    )
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=str,
+        default="checkpoints/",
+        help="Checkpoint directory",
+    )
+    parser.add_argument(
+        "--vocab-file",
+        type=str,
+        default="models/tokenizers/goe_pt/goe_pt_tokenizer.json",
+        help="Vocabulary file",
+    )
+
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=16,
+        metavar="N",
+        help="input batch size for training (default: 16)",
+    )
+    parser.add_argument("--context-length", type=int, default=256)
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=14,
+        metavar="N",
+        help="number of epochs to train (default: 14)",
+    )
+    parser.add_argument(
+        "--gradient-accumulation-steps", type=int, default=32, metavar="N"
+    )
+    parser.add_argument("--eval-iters", type=int, default=200, metavar="N")
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=1e-3,
+        metavar="LR",
+        help="learning rate (default: 1e-3)",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=42, metavar="S", help="random seed (default: 1)"
+    )
+    parser.add_argument(
+        "--eval-interval",
+        type=int,
+        default=100,
+        metavar="N",
+        help="how many batches to wait before logging training status",
+    )
+
+    args = parser.parse_args()
+    param_objective = partial(objective, args=args)
+
+    study_name = "goept_language_study_1"
+    storage_name = f"sqlite:///goept_{study_name}.db"
+    study = optuna.create_study(
+        study_name=study_name,
+        storage=storage_name,
+        direction="minimize",
+        load_if_exists=True,
+        sampler=optuna.samplers.TPESampler(),
+    )
+    study.optimize(param_objective, n_trials=30)
 
 
 if __name__ == "__main__":
