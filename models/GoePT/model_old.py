@@ -298,6 +298,30 @@ def read_datasets(split, data_dir, context_length, batch_size, rng):
 
     return x, y
 
+def hash_to_path(data_dir, hash, suffix = '.bin'):
+    return os.path.join(data_dir, 'raw_files', hash[0], hash[1], hash[2], hash + suffix)
+
+def read_tracks_by_genre(data_dir, set_name = 'train'):
+    genres = set()
+
+    with open(os.path.join(data_dir, set_name + '.csv'), 'r') as f:
+        hashes_and_genres = np.array([line.strip().split(',') for line in f.readlines()])
+    
+    for hash, genre in hashes_and_genres:
+        genres.add(genre)
+    
+    tracks = {}
+    for genre in genres:
+        tracks[genre] = []
+    
+    for hash, genre in hashes_and_genres:
+        path = hash_to_path(data_dir, hash)
+        if os.path.exists(path):
+            tracks[genre].append(
+                np.memmap(path, dtype=np.uint16, mode="r")
+            )
+    
+    return tracks
 
 def compute_gradient(target, prediction, one_hot_lookup):
     target = xp.stack([one_hot_lookup[token] for token in target])
