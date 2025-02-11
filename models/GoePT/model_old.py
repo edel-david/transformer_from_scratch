@@ -323,6 +323,33 @@ def read_tracks_by_genre(data_dir, set_name = 'train'):
     
     return tracks
 
+def tracks_to_slices(tracks, context_length):
+    sliced_tracks = {}
+    for genre in tracks.keys():
+        sliced_tracks[genre] = []
+        for track in tracks[genre]:
+            for i in range(0, len(track) - context_length, context_length // 2): # overlap of 50%
+                sliced_tracks[genre].append(track[i : i + context_length])
+    return sliced_tracks
+
+def get_batch_from_sliced_tracks(sliced_tracks, batch_size, rng):
+    genre_probabilities = np.array([len(sliced_tracks[genre]) for genre in sliced_tracks.keys()])
+    genre_probabilities = genre_probabilities / genre_probabilities.sum()
+
+    selected_slices = []
+    selected_genres = []
+    for _ in range(batch_size):
+        selected_genre = rng.choice(list(sliced_tracks.keys()), p=genre_probabilities)
+        selected_genres.append(selected_genre)
+        selected_slice_idx = rng.integers(len(sliced_tracks[selected_genre]))
+        selected_slices.append(sliced_tracks[selected_genre][selected_slice_idx])
+
+    x = np.stack(selected_slices)
+    y = np.stack(selected_genres)
+
+    return x, y
+    
+
 def compute_gradient(target, prediction, one_hot_lookup):
     target = xp.stack([one_hot_lookup[token] for token in target])
     return (prediction - target), target
