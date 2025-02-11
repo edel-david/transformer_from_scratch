@@ -1,7 +1,13 @@
 .DS_Store
 .vscode
 checkpoints
-**/__pycache__/
 apikey.txt
 wandb/
 nohup.out
+
+# Python
+**/__pycache__/
+.venv
+
+# Dataset
+data/
