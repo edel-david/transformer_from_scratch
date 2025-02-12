@@ -279,9 +279,6 @@ class GoePT:
         return goe_pt
 
 
-import mmap
-
-
 def read_datasets(split, data_dir, context_length, batch_size, rng):
     # We recreate np.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
@@ -298,57 +295,84 @@ def read_datasets(split, data_dir, context_length, batch_size, rng):
 
     return x, y
 
-def hash_to_path(data_dir, hash, suffix = '.bin'):
-    return os.path.join(data_dir, 'raw_files', hash[0], hash[1], hash[2], hash + suffix)
-
-def read_tracks_by_genre(data_dir, set_name = 'train'):
-    genres = set()
-
-    with open(os.path.join(data_dir, set_name + '.csv'), 'r') as f:
-        hashes_and_genres = np.array([line.strip().split(',') for line in f.readlines()])
     
-    for hash, genre in hashes_and_genres:
-        genres.add(genre)
+
+
+class Track:
+    def __init__(self, hash, genre):
+        self.hash = hash
+        self.genre = genre
+        self.memmap = None
+
+    def get_path(self, data_dir = 'data', suffix = '.bin'):
+        return os.path.join(data_dir, 'raw_files', self.hash[0], self.hash[1], self.hash[2], self.hash + suffix)
     
-    tracks = {}
-    for genre in genres:
-        tracks[genre] = []
+    def exists(self):
+        return os.path.exists(self.get_path())
+
+    def get_memmap(self):
+        if self.memmap is None:
+            self.memmap = np.memmap(self.get_path(), dtype=np.uint16, mode="r")
+        return self.memmap
+
+class Dataset:
+    def __init__(self, name, data_dir = 'data'):
+        self.name = name
+        genres = set()
+        self.sliced_tracks = None
+
+        with open(os.path.join(data_dir, name + '.csv'), 'r') as f:
+            hashes_and_genres = np.array([line.strip().split(',') for line in f.readlines()])
+        
+        for hash, genre in hashes_and_genres:
+            genres.add(genre)
+
+        self.genres = genres
+        
+        tracks = {}
+        for genre in genres:
+            tracks[genre] = []
+        
+        for hash, genre in hashes_and_genres:
+            track = Track(hash, genre)
+            if track.exists():
+                tracks[genre].append(
+                    track
+                )
+        self.tracks = tracks
+
+    def get_slices(self, context_length):
+        if self.sliced_tracks is None:
+            self.sliced_tracks = {}
+            for genre in self.tracks.keys():
+                self.sliced_tracks[genre] = []
+                for track in self.tracks[genre]:
+                    track = track.get_memmap()
+                    for i in range(0, len(track) - context_length, context_length // 2): # overlap of 50%
+                        self.sliced_tracks[genre].append(track[i : i + context_length])
+        return self.sliced_tracks
     
-    for hash, genre in hashes_and_genres:
-        path = hash_to_path(data_dir, hash)
-        if os.path.exists(path):
-            tracks[genre].append(
-                np.memmap(path, dtype=np.uint16, mode="r")
-            )
+    def get_batch_from_slices(self, batch_size, rng):
+        genre_probabilities = np.array([len(self.sliced_tracks[genre]) for genre in self.sliced_tracks.keys()])
+        genre_probabilities = genre_probabilities / genre_probabilities.sum()
+
+        selected_slices = []
+        selected_genres = []
+        for _ in range(batch_size):
+            selected_genre = rng.choice(list(self.sliced_tracks.keys()), p=genre_probabilities)
+            selected_genres.append(selected_genre)
+            selected_slice_idx = rng.integers(len(self.sliced_tracks[selected_genre]))
+            selected_slices.append(self.sliced_tracks[selected_genre][selected_slice_idx])
+
+        x = np.stack(selected_slices)
+        y = np.stack(selected_genres)
+
+        return x, y
     
-    return tracks
 
-def tracks_to_slices(tracks, context_length):
-    sliced_tracks = {}
-    for genre in tracks.keys():
-        sliced_tracks[genre] = []
-        for track in tracks[genre]:
-            for i in range(0, len(track) - context_length, context_length // 2): # overlap of 50%
-                sliced_tracks[genre].append(track[i : i + context_length])
-    return sliced_tracks
-
-def get_batch_from_sliced_tracks(sliced_tracks, batch_size, rng):
-    genre_probabilities = np.array([len(sliced_tracks[genre]) for genre in sliced_tracks.keys()])
-    genre_probabilities = genre_probabilities / genre_probabilities.sum()
-
-    selected_slices = []
-    selected_genres = []
-    for _ in range(batch_size):
-        selected_genre = rng.choice(list(sliced_tracks.keys()), p=genre_probabilities)
-        selected_genres.append(selected_genre)
-        selected_slice_idx = rng.integers(len(sliced_tracks[selected_genre]))
-        selected_slices.append(sliced_tracks[selected_genre][selected_slice_idx])
-
-    x = np.stack(selected_slices)
-    y = np.stack(selected_genres)
-
-    return x, y
-    
+def get_batch_new(dataset: Dataset, context_length, batch_size, rng):
+    dataset.get_slices(context_length)
+    return dataset.get_batch_from_slices(batch_size)
 
 def compute_gradient(target, prediction, one_hot_lookup):
     target = xp.stack([one_hot_lookup[token] for token in target])

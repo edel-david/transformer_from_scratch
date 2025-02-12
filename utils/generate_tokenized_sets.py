@@ -3,7 +3,7 @@ from pathlib import Path
 import miditok
 import numpy as np
 
-from models.GoePT.model_old import read_tracks_by_genre
+from models.GoePT.model_old import Dataset
 
 def hash_to_path(data_dir, hash, suffix = '.bin'):
     return os.path.join(data_dir, 'raw_files', hash[0], hash[1], hash[2], hash + suffix)
@@ -66,10 +66,29 @@ def create_tokenized_datasets(data_dir, set_name = 'train'):
 
 if __name__ == "__main__":
     data_dir = "data/"
-    create_tokenized_datasets(data_dir, set_name = 'validation')
-    tracks = read_tracks_by_genre(data_dir, set_name = 'validation')
-    for key in tracks.keys():
-        print(f"{key}: {len(tracks[key])} tracks")
+    #create_tokenized_datasets(data_dir, set_name = 'validation')
+    dataset = Dataset('validation')
+    slices = dataset.get_slices(512)
+    for genre in slices.keys():
+        print(genre, len(slices[genre]))
+
+    used = set()
+    i = 0
+    j = 0
+    while True:
+        slices, genres = dataset.get_batch_from_slices(16, np.random.default_rng())
+        for slice in slices:
+            sliceAsString = str(list(slice))
+            if sliceAsString in used:
+                print("Duplicate ", i)
+                i += 1
+            else:
+                used.add(sliceAsString)
+                print("Good ", j)
+                j += 1
+
+        
+
 
 
 
