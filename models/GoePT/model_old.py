@@ -438,15 +438,6 @@ def main():
 
     rng = np.random.default_rng(args.seed)
 
-    # read_dataset still uses numpy, batches get converted to cupy later
-
-    get_batch = partial(
-        read_datasets,
-        data_dir=args.data_dir,
-        context_length=args.context_length,
-        batch_size=args.batch_size,
-        rng=rng,
-    )
 
     # Pre-generate one-hot vectors using the vocab size
     # for gradient computation
@@ -468,6 +459,19 @@ def main():
     table_update_func = partial(
         get_log_output_table, log_output_buffer=log_output_buffer
     )
+
+    train_set = Dataset('train')
+    validation_set = Dataset('validation')
+
+    train_set.get_slices(args.context_length)
+    validation_set.get_slices(args.context_length)
+
+    def get_batch(set_name):
+        if set_name == 'train':
+            return train_set.get_batch_from_slices(args.batch_size, rng)
+        if set_name == 'val':
+            return validation_set.get_batch_from_slices(args.batch_size, rng)
+
 
     # with status_console.screen():
     with Live(header_panel):
