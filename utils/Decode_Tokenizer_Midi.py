@@ -49,7 +49,8 @@ TOKENIZER_PARAMS = {
 config = TokenizerConfig(**TOKENIZER_PARAMS)
 tokenizer = REMI(config)
 with open(
-    "../data/tokenized/train/1/2/0/120a5b2484c24f10677b7d347964b699_chunk0.bin", "rb"
+    "../data/tokenized/train/GENRE_hits of the 1960s/0a0edd409bfaf23e0364359d959f33db.bin",
+    "rb",
 ) as f:
     token_ids = np.frombuffer(f.read(), dtype=np.uint16)
 

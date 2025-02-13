@@ -63,7 +63,11 @@ ERROR_LOG_PATH = Path("../data/tokenized/error_encoding_log.txt")
 
 
 def process_dataset(
-    midi_paths, hash_to_genre, tokenizer, output_dir, dataset_name, max_seq_len=1024
+    midi_paths,
+    hash_to_genre,
+    tokenizer,
+    output_dir,
+    dataset_name,
 ):
 
     ERROR_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -89,11 +93,11 @@ def process_dataset(
             )
             continue
 
-        genre_token_id = tokenizer.vocab[genre_token_str]
+        # genre_token_id = tokenizer.vocab[genre_token_str]
 
         # Tokenize MIDI file
         try:
-            tokens_list = tokenizer.encode(midi_path)
+            tokens = tokenizer.encode(midi_path)
         except (ValueError, RuntimeError) as e:
             error_message = f"Error encoding {midi_path}: {e}. Skipping this file."
             print(error_message)
@@ -101,36 +105,26 @@ def process_dataset(
                 err_file.write(error_message + "\n")
             continue
 
-        chunked_sequences = split_seq_in_subsequences(
-            tokens_list, min_seq_len=max_seq_len - 10, max_seq_len=max_seq_len - 1
+        # chunked_sequences = split_seq_in_subsequences(
+        #     tokens_list, min_seq_len=max_seq_len - 10, max_seq_len=max_seq_len - 1
+        # )
+
+        token_ids = np.array(tokens.ids, dtype=np.uint16)
+
+        # relative_path = midi_path.relative_to("../data/raw_files")
+        filename = midi_path.stem + f".bin"
+        tokenized_path = Path(output_dir, genre_token_str, filename)
+        tokenized_path.parent.mkdir(parents=True, exist_ok=True)
+
+        token_ids.tofile(tokenized_path)
+
+        # Log each md5 token size in the CSV
+        csv_sequence_lengths.append(
+            {
+                "md5": midi_hash,
+                "total_tokens": len(tokens.ids),
+            }
         )
-
-        total_tokens_across_chunks = 0
-        for i, chunk in enumerate(chunked_sequences):
-
-            # Insert the genre token at the start of each chunk
-            chunk.ids.insert(0, genre_token_id)
-
-            train_data = np.array(chunk.ids, dtype=np.uint16)
-
-            relative_path = midi_path.relative_to("../data/raw_files")
-            chunked_filename = relative_path.stem + f"_chunk{i}.bin"
-            chunked_tokenized_path = Path(
-                output_dir, relative_path.parent, chunked_filename
-            )
-            chunked_tokenized_path.parent.mkdir(parents=True, exist_ok=True)
-
-            train_data.tofile(chunked_tokenized_path)
-
-            # Log each chunk's token size in the CSV
-            csv_sequence_lengths.append(
-                {
-                    "md5": midi_hash,
-                    "chunk": i,
-                    "chunk_size": len(chunk.ids),
-                    "total_tokens": len(tokens_list.ids),
-                }
-            )
 
         # tokens = tokens_list.ids
         # # Insert genre token at the start
@@ -146,9 +140,7 @@ def process_dataset(
 
     csv_output_path = Path(output_dir, f"{dataset_name}_token_length_summary.csv")
     with csv_output_path.open("w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.DictWriter(
-            csvfile, fieldnames=["md5", "chunk", "chunk_size", "total_tokens"]
-        )
+        writer = csv.DictWriter(csvfile, fieldnames=["md5", "total_tokens"])
         writer.writeheader()
         writer.writerows(csv_sequence_lengths)
 
@@ -211,7 +203,7 @@ if __name__ == "__main__":
     for dataset_name, paths in datasets.items():
         output_dir = Path(f"../data/tokenized/{dataset_name}")
         print(f"Processing {dataset_name} dataset with {len(paths)} files ...")
-        process_dataset(paths, hash_to_genre, tokenizer, output_dir, dataset_name, 1024)
+        process_dataset(paths, hash_to_genre, tokenizer, output_dir, dataset_name)
 
 
 # müssen warhscheinlich files noch in chunks bringen, dieselbe Größe wie die Context size?
