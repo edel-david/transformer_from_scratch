@@ -12,7 +12,7 @@ import cupy as cp
 import numpy as np
 
 xp = cp
-n_genres = ...
+n_genres = 27
 n_blocks = 6
 n_embd = 384
 dropout = 0.1
@@ -35,13 +35,14 @@ ic.disable()
 
 
 class Track:
-    def __init__(self, hash, genre):
+    def __init__(self, hash, genre, set_name):
         self.hash = hash
         self.genre = genre
+        self.set_name = set_name
         self.memmap = None
 
     def get_path(self, data_dir = 'data', suffix = '.bin'):
-        return os.path.join(data_dir, 'raw_files', self.hash[0], self.hash[1], self.hash[2], self.hash + suffix)
+        return os.path.join(data_dir, 'tokenized', self.set_name, f"GENRE_{self.genre}", self.hash + suffix)
     
     def exists(self):
         return os.path.exists(self.get_path())
@@ -54,33 +55,47 @@ class Track:
 class Dataset:
     def __init__(self, name, data_dir = 'data'):
         self.name = name
-        genres = set()
         self.sliced_tracks = None
 
-        with open(os.path.join(data_dir, name + '.csv'), 'r') as f:
-            hashes_and_genres = np.array([line.strip().split(',') for line in f.readlines()])
-        
-        for hash, genre in hashes_and_genres:
-            genres.add(genre)
+        if not os.path.exists(os.path.join(data_dir, 'tokenized', name)):
+            raise FileNotFoundError(f"Dataset {name} not found")
 
-        self.genres = genres
+        _genres = os.listdir(os.path.join(data_dir, 'tokenized', name))
+        self.genres = list()
+
+        for genre in _genres:
+            if genre.startswith('GENRE_'):
+                self.genres.append(genre[6:])
         
-        tracks = {}
-        for genre in genres:
-            tracks[genre] = []
+        self.genres = sorted(self.genres)
+
+        assert len(self.genres) == n_genres, f"Expected {n_genres} genres, got {len(self.genres)}"
+
+        self._genres_to_idx = {}
+        for i, genre in enumerate(self.genres):
+            self._genres_to_idx[genre] = i
         
-        for hash, genre in hashes_and_genres:
-            track = Track(hash, genre)
-            if track.exists():
-                tracks[genre].append(
-                    track
-                )
-        self.tracks = tracks
+        self.tracks = {}
+        
+        for genre in self.genres:
+            self.tracks[genre] = []
+            for file in os.listdir(os.path.join(data_dir, 'tokenized', name, f"GENRE_{genre}")):
+                if file.endswith('.bin'):
+                    track = Track(file[:-4], genre, name)
+                    if track.exists():
+                        self.tracks[genre].append(
+                            track
+                        )
+                    else:
+                        raise FileNotFoundError(f"Tokenized file {file} not found")
+    
+    def genre_to_idx(self, genre):
+        return self._genres_to_idx[genre]
 
     def get_slices(self, context_length):
         if self.sliced_tracks is None:
             self.sliced_tracks = {}
-            for genre in self.tracks.keys():
+            for genre in self.genres:
                 self.sliced_tracks[genre] = []
                 for track in self.tracks[genre]:
                     track = track.get_memmap()
@@ -96,7 +111,7 @@ class Dataset:
         selected_genres = []
         for _ in range(batch_size):
             selected_genre = rng.choice(list(self.sliced_tracks.keys()), p=genre_probabilities)
-            selected_genres.append(selected_genre)
+            selected_genres.append(self.genre_to_idx(selected_genre))
             selected_slice_idx = rng.integers(len(self.sliced_tracks[selected_genre]))
             selected_slices.append(self.sliced_tracks[selected_genre][selected_slice_idx])
 
@@ -104,7 +119,6 @@ class Dataset:
         y = np.stack(selected_genres)
 
         return x, y
-    
 
 
 def compute_gradient(target, prediction, one_hot_lookup):
@@ -227,7 +241,7 @@ def main():
     np_rng = np.random.default_rng(args.seed)
     
     train_set = Dataset('train')
-    validation_set = Dataset('validation')
+    validation_set = Dataset('val')
 
     train_set.get_slices(args.context_length)
     validation_set.get_slices(args.context_length)

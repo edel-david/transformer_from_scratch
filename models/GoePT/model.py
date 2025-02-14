@@ -43,7 +43,7 @@ class GoePT:
         dropout: float = 0.2,
         lr: float = 1e-3,
     ) -> None:
-
+        self.n_genres = n_genres
         self.vocab_size = vocab_size
         self.context_length = context_length
         self.batch_size = batch_size
