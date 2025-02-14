@@ -254,7 +254,7 @@ def main():
 
     # Pre-generate one-hot vectors using the vocab size
     # for gradient computation
-    one_hot_lookup = xp.eye(8192)
+    one_hot_lookup = xp.eye(n_genres)
 
     iter_num = 0
 
@@ -289,6 +289,7 @@ def main():
 
                 X, Y = get_batch("train")
                 X, Y = cp.asarray(X), cp.asarray(Y)
+
                 logits, loss = model.forward(X, Y, True)
                 wandb.log({"train_loss": loss.item()}, step=step)
                 # Scale the loss to account for gradient accumulation

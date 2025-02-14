@@ -152,7 +152,7 @@ class GoePT:
             ic(logits.shape, targets.shape)
             logits_for_loss = logits.reshape(-1, logits.shape[-1])
             targets_for_loss = np.expand_dims(targets.reshape(-1), 1)
-            targets_for_loss = scr.one_hot(targets_for_loss, 8192)
+            targets_for_loss = scr.one_hot(targets_for_loss, self.n_genres)
 
             loss = cross_entropy_loss(logits_for_loss, targets_for_loss)
         else:
