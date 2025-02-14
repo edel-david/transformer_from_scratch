@@ -671,18 +671,15 @@ class Embedding:
         # https://paperswithcode.com/method/weight-tying
 
         # ??? TODO: check if correct
-        if isinstance(type(weight_external), NoneType):
-            if self.init_func:
-                self.weight = cp.asanyarray(
-                    self.init_func((num_embeddings, embedding_dim))
-                )
-            else:
-                self.weight = self.rng.standard_normal(
-                    (num_embeddings, embedding_dim), dtype=cp.float64
-                )
-
+        if self.init_func:
+            self.weight = cp.asanyarray(
+                self.init_func((num_embeddings, embedding_dim))
+            )
         else:
-            self.weight = weight_external
+            self.weight = self.rng.standard_normal(
+                (num_embeddings, embedding_dim), dtype=cp.float64
+            )
+
 
         self.gradient_projection_mask = cp.eye(num_embeddings, dtype=cp.uint8)
 
