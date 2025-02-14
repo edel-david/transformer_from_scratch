@@ -526,9 +526,9 @@ class MultiHeadAttention:
         )
 
         # This forces the input to be context_size long, crashing on smaller input lengths: fix in forward()
-        self.mask = cp.tril(
-            cp.ones((context_size, context_size), dtype=cp.float64)
-        ).reshape(1, 1, context_size, context_size)
+        # self.mask = cp.tril(
+        #     cp.ones((context_size, context_size), dtype=cp.float64)
+        # ).reshape(1, 1, context_size, context_size)
 
         self.input = None
         self.v = None
@@ -565,10 +565,10 @@ class MultiHeadAttention:
         # k.shape[-1] == C // self.n_heads == multi_head_attention_head_dim == depth
 
         # inference fix for smaller T:
-        # TODO: find way to only use this for inference, could hurt performance for training.
-        self.mask = cp.tril(cp.ones((T, T), dtype=cp.float64)).reshape(1, 1, T, T)
+        # NO_MIDI_OLD: TODO: find way to only use this for inference, could hurt performance for training.
+        #self.mask = cp.tril(cp.ones((T, T), dtype=cp.float64)).reshape(1, 1, T, T)
 
-        attn = cp.where(self.mask == 0, -1e9, attn)
+        # attn = cp.where(self.mask == 0, -1e9, attn) // we do not need this mask for midiclass
 
         attn = self.softmax_attn.forward(attn)
         attn = self.attn_dropout.forward(attn, train)
@@ -602,7 +602,7 @@ class MultiHeadAttention:
         # v.shape: 16 x 6 x 256 x 64
         long_grad = self.attn_dropout.backward(long_grad)
         long_grad = self.softmax_attn.backward(long_grad)
-        long_grad = cp.where(self.mask == 0, 0, long_grad)
+        # long_grad = cp.where(self.mask == 0, 0, long_grad)
 
         long_grad = long_grad * (1 / cp.sqrt(self.depth))
         q_grad = long_grad @ self.k  # insert dimensions swaps
