@@ -5,3 +5,4 @@ checkpoints
 apikey.txt
 wandb/
 nohup.out
+*.db
