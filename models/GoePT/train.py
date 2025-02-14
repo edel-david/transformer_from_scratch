@@ -34,31 +34,77 @@ ic.configureOutput(includeContext=True)
 ic.disable()
 
 
-# for midi read_dataset, either prepend the class label (one unit16 maybe)
-# or make a seperate file.
+class Track:
+    def __init__(self, hash, genre):
+        self.hash = hash
+        self.genre = genre
+        self.memmap = None
 
+    def get_path(self, data_dir = 'data', suffix = '.bin'):
+        return os.path.join(data_dir, 'raw_files', self.hash[0], self.hash[1], self.hash[2], self.hash + suffix)
+    
+    def exists(self):
+        return os.path.exists(self.get_path())
 
-def read_datasets(split, data_dir, context_length, batch_size, rng):
-    # We recreate np.memmap every batch to avoid a memory leak, as per
-    # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
+    def get_memmap(self):
+        if self.memmap is None:
+            self.memmap = np.memmap(self.get_path(), dtype=np.uint16, mode="r")
+        return self.memmap
 
-    if split == "train":
-        data = xp.asarray(
-            np.memmap(os.path.join(data_dir, "train.bin"), dtype=np.uint16, mode="r")
-        )
-    else:
-        data = xp.asarray(
-            np.memmap(os.path.join(data_dir, "val.bin"), dtype=np.uint16, mode="r")
-        )
+class Dataset:
+    def __init__(self, name, data_dir = 'data'):
+        self.name = name
+        genres = set()
+        self.sliced_tracks = None
 
-    ix = rng.integers(len(data) - context_length, size=(batch_size,))
+        with open(os.path.join(data_dir, name + '.csv'), 'r') as f:
+            hashes_and_genres = np.array([line.strip().split(',') for line in f.readlines()])
+        
+        for hash, genre in hashes_and_genres:
+            genres.add(genre)
 
-    x = np.stack([(data[i : i + context_length].astype(np.int64)) for i in ix])
+        self.genres = genres
+        
+        tracks = {}
+        for genre in genres:
+            tracks[genre] = []
+        
+        for hash, genre in hashes_and_genres:
+            track = Track(hash, genre)
+            if track.exists():
+                tracks[genre].append(
+                    track
+                )
+        self.tracks = tracks
 
-    # this line is wrong for midi.
-    # y = np.stack([(data[i + 1 : i + 1 + context_length].astype(np.int64)) for i in ix])
+    def get_slices(self, context_length):
+        if self.sliced_tracks is None:
+            self.sliced_tracks = {}
+            for genre in self.tracks.keys():
+                self.sliced_tracks[genre] = []
+                for track in self.tracks[genre]:
+                    track = track.get_memmap()
+                    for i in range(0, len(track) - context_length, context_length // 2): # overlap of 50%
+                        self.sliced_tracks[genre].append(track[i : i + context_length])
+        return self.sliced_tracks
+    
+    def get_batch_from_slices(self, batch_size, rng):
+        genre_probabilities = np.array([len(self.sliced_tracks[genre]) for genre in self.sliced_tracks.keys()])
+        genre_probabilities = genre_probabilities / genre_probabilities.sum()
 
-    return x, y
+        selected_slices = []
+        selected_genres = []
+        for _ in range(batch_size):
+            selected_genre = rng.choice(list(self.sliced_tracks.keys()), p=genre_probabilities)
+            selected_genres.append(selected_genre)
+            selected_slice_idx = rng.integers(len(self.sliced_tracks[selected_genre]))
+            selected_slices.append(self.sliced_tracks[selected_genre][selected_slice_idx])
+
+        x = np.stack(selected_slices)
+        y = np.stack(selected_genres)
+
+        return x, y
+    
 
 
 def compute_gradient(target, prediction, one_hot_lookup):
@@ -179,13 +225,18 @@ def main():
 
     # rng = xp.random.default_rng(args.seed)
     np_rng = np.random.default_rng(args.seed)
-    get_batch = partial(
-        read_datasets,
-        data_dir=args.data_dir,
-        context_length=args.context_length,
-        batch_size=args.batch_size,
-        rng=np_rng,
-    )
+    
+    train_set = Dataset('train')
+    validation_set = Dataset('validation')
+
+    train_set.get_slices(args.context_length)
+    validation_set.get_slices(args.context_length)
+
+    def get_batch(set_name):
+        if set_name == 'train':
+            return train_set.get_batch_from_slices(args.batch_size, np_rng)
+        if set_name == 'val':
+            return validation_set.get_batch_from_slices(args.batch_size, np_rng)
 
     # Pre-generate one-hot vectors using the vocab size
     # for gradient computation
