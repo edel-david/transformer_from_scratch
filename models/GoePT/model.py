@@ -122,6 +122,22 @@ class GoePT:
         # self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
 
         # assert id(self.transformer['wte'].weight) == id(self.lm_head.weight), "wte and lm_head must share the same weights in memory"
+    
+    def set_lr(self, lr):
+        def recursive_set_lr(obj):
+            if hasattr(obj, "lr"):
+                obj.lr = lr
+            if isinstance(obj, list):
+                for elem in obj:
+                    recursive_set_lr(elem)
+            if isinstance(obj, dict):
+                for key in obj:
+                    recursive_set_lr(obj[key])
+            if hasattr(obj, "__dict__"):
+                for attr in obj.__dict__:
+                    recursive_set_lr(getattr(obj, attr))
+        
+        recursive_set_lr(self)
 
     def forward(self, idx, targets=None, train=False):
         b, t = idx.shape
