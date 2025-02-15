@@ -34,7 +34,7 @@ class GoePT:
 
     def __init__(
         self,
-        n_genres:int,
+        n_genres: int,
         vocab_size: int = 8192,
         context_length: int = 256,
         batch_size: int = 64,
@@ -82,11 +82,11 @@ class GoePT:
 
         self.transformer = {
             "wte": scr.Embedding(
-                self.vocab_size,
+                self.vocab_size + 1,
                 self.n_embd,
                 self.batch_size,
                 self.lr,
-                init_func=weight_init
+                init_func=weight_init,
                 # weight_external=self.lm_head.weight_transposed, # Old, weight tying not possible with vocab_size != #classes
             ),
             "wpe": scr.Embedding(
@@ -130,6 +130,12 @@ class GoePT:
         ), f"Cannot forward sequence of length {t}, block size is only {self.context_length}"
         pos = np.arange(0, t, dtype=np.int64)  # shape (t)
 
+        # replace the first token with the classification token:
+        idx[:, 0] = (
+            self.vocab_size
+        )  # because the normal embedding uses indices 0 to vocab_size-1,
+        # we can use vocab_size as the classification token.
+
         # Forward the GPT model itself
         # Token embeddings of shape (b, t, n_embd)
         tok_emb = self.transformer["wte"].forward(idx)
@@ -144,23 +150,21 @@ class GoePT:
         x = self.transformer["ln_f"].forward(x)
 
         # Compute loss and return
-        if targets is not None: # branch on knowledge of right answer: If known, calculate loss. else only return logits.
-        # if we are given some desired targets also calculate the loss<
-        # in both cases, we only apply the lm_head to the first token. 
-            
-            logits = self.lm_head.forward(x[:, [0], :]) # pass the first token, the classification token, to the lm_head.
+        logits = self.lm_head.forward(
+            x[:, [0], :]
+        )  # pass the first token, the classification token, to the lm_head.
+
+        if (
+            targets is not None
+        ):  # branch on knowledge of right answer: If known, calculate loss. else only return logits.
+            # if we are given some desired targets also calculate the loss<
+            # in both cases, we only apply the lm_head to the first token.
             ic(logits.shape, targets.shape)
             logits_for_loss = logits.reshape(-1, logits.shape[-1])
             targets_for_loss = np.expand_dims(targets.reshape(-1), 1)
             targets_for_loss = scr.one_hot(targets_for_loss, self.n_genres)
-
             loss = cross_entropy_loss(logits_for_loss, targets_for_loss)
         else:
-            # inference-time mini-optimization: only forward the lm_head on the very last position
-            # midi: assume x has shape (B,T,C). 
-            logits = self.lm_head.forward(
-                x[:, [0], :]
-            )  # note: using list [-1] to preserve the time dim
             loss = None
 
         return logits, loss

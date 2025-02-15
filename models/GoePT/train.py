@@ -41,9 +41,15 @@ class Track:
         self.set_name = set_name
         self.memmap = None
 
-    def get_path(self, data_dir = 'data', suffix = '.bin'):
-        return os.path.join(data_dir, 'tokenized', self.set_name, f"GENRE_{self.genre}", self.hash + suffix)
-    
+    def get_path(self, data_dir="data", suffix=".bin"):
+        return os.path.join(
+            data_dir,
+            "tokenized",
+            self.set_name,
+            f"GENRE_{self.genre}",
+            self.hash + suffix,
+        )
+
     def exists(self):
         return os.path.exists(self.get_path())
 
@@ -52,43 +58,48 @@ class Track:
             self.memmap = np.memmap(self.get_path(), dtype=np.uint16, mode="r")
         return self.memmap
 
+
 class Dataset:
-    def __init__(self, name, data_dir = 'data'):
+    tracks: dict[str, list[Track]]
+
+    def __init__(self, name, data_dir="data"):
         self.name = name
         self.sliced_tracks = None
 
-        if not os.path.exists(os.path.join(data_dir, 'tokenized', name)):
+        if not os.path.exists(os.path.join(data_dir, "tokenized", name)):
             raise FileNotFoundError(f"Dataset {name} not found")
 
-        _genres = os.listdir(os.path.join(data_dir, 'tokenized', name))
+        _genres = os.listdir(os.path.join(data_dir, "tokenized", name))
         self.genres = list()
 
         for genre in _genres:
-            if genre.startswith('GENRE_'):
+            if genre.startswith("GENRE_"):
                 self.genres.append(genre[6:])
-        
+
         self.genres = sorted(self.genres)
 
-        assert len(self.genres) == n_genres, f"Expected {n_genres} genres, got {len(self.genres)}"
+        assert (
+            len(self.genres) == n_genres
+        ), f"Expected {n_genres} genres, got {len(self.genres)}"
 
         self._genres_to_idx = {}
         for i, genre in enumerate(self.genres):
             self._genres_to_idx[genre] = i
-        
+
         self.tracks = {}
-        
+
         for genre in self.genres:
             self.tracks[genre] = []
-            for file in os.listdir(os.path.join(data_dir, 'tokenized', name, f"GENRE_{genre}")):
-                if file.endswith('.bin'):
+            for file in os.listdir(
+                os.path.join(data_dir, "tokenized", name, f"GENRE_{genre}")
+            ):
+                if file.endswith(".bin"):
                     track = Track(file[:-4], genre, name)
                     if track.exists():
-                        self.tracks[genre].append(
-                            track
-                        )
+                        self.tracks[genre].append(track)
                     else:
                         raise FileNotFoundError(f"Tokenized file {file} not found")
-    
+
     def genre_to_idx(self, genre):
         return self._genres_to_idx[genre]
 
@@ -99,21 +110,29 @@ class Dataset:
                 self.sliced_tracks[genre] = []
                 for track in self.tracks[genre]:
                     track = track.get_memmap()
-                    for i in range(0, len(track) - context_length, context_length // 2): # overlap of 50%
+                    for i in range(
+                        0, len(track) - context_length, context_length // 2
+                    ):  # overlap of 50%
                         self.sliced_tracks[genre].append(track[i : i + context_length])
         return self.sliced_tracks
-    
+
     def get_batch_from_slices(self, batch_size, rng):
-        genre_probabilities = np.array([len(self.sliced_tracks[genre]) for genre in self.sliced_tracks.keys()])
+        genre_probabilities = np.array(
+            [len(self.sliced_tracks[genre]) for genre in self.sliced_tracks.keys()]
+        )
         genre_probabilities = genre_probabilities / genre_probabilities.sum()
 
         selected_slices = []
         selected_genres = []
         for _ in range(batch_size):
-            selected_genre = rng.choice(list(self.sliced_tracks.keys()), p=genre_probabilities)
+            selected_genre = rng.choice(
+                list(self.sliced_tracks.keys()), p=genre_probabilities
+            )
             selected_genres.append(self.genre_to_idx(selected_genre))
             selected_slice_idx = rng.integers(len(self.sliced_tracks[selected_genre]))
-            selected_slices.append(self.sliced_tracks[selected_genre][selected_slice_idx])
+            selected_slices.append(
+                self.sliced_tracks[selected_genre][selected_slice_idx]
+            )
 
         x = np.stack(selected_slices)
         y = np.stack(selected_genres)
@@ -122,7 +141,10 @@ class Dataset:
 
 
 def compute_gradient(target, prediction, one_hot_lookup):
-    target = xp.stack([one_hot_lookup[token] for token in target])
+    target = xp.stack([one_hot_lookup[token] for token in target]).reshape(
+        -1, 1, one_hot_lookup.shape[0]
+    )
+    # (prediction - target) should have shape: (batch_size,1, n_genres)
     return (prediction - target), target
 
 
@@ -202,7 +224,7 @@ def main():
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
     wandb.init(
-        # mode="disabled",  # disable wandb
+        mode="disabled",  # disable wandb
         # Set the project where this run will be logged
         project="tfs",
         # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
@@ -239,17 +261,17 @@ def main():
 
     # rng = xp.random.default_rng(args.seed)
     np_rng = np.random.default_rng(args.seed)
-    
-    train_set = Dataset('train')
-    validation_set = Dataset('val')
+
+    train_set = Dataset("train")
+    validation_set = Dataset("val")
 
     train_set.get_slices(args.context_length)
     validation_set.get_slices(args.context_length)
 
     def get_batch(set_name):
-        if set_name == 'train':
+        if set_name == "train":
             return train_set.get_batch_from_slices(args.batch_size, np_rng)
-        if set_name == 'val':
+        if set_name == "val":
             return validation_set.get_batch_from_slices(args.batch_size, np_rng)
 
     # Pre-generate one-hot vectors using the vocab size
@@ -290,7 +312,7 @@ def main():
                 X, Y = get_batch("train")
                 X, Y = cp.asarray(X), cp.asarray(Y)
 
-                logits, loss = model.forward(X, Y, True)
+                logits, loss = model.forward(X, targets=Y, train=True)
                 wandb.log({"train_loss": loss.item()}, step=step)
                 # Scale the loss to account for gradient accumulation
                 loss = loss / args.gradient_accumulation_steps
