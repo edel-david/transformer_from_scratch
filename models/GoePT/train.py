@@ -18,18 +18,6 @@ n_embd = 384
 dropout = 0.1
 
 
-# learn rate setter:
-def set_lr_recursive(model,new_lr:float):
-    for key in model.__dict__.keys():
-        if isinstance(model.__dict__[key],NoneType):
-            continue
-        if hasattr(model.__dict__[key],'lr'):
-            model.__dict__[key].lr = new_lr
-        if hasattr(model.__dict__[key],'__dict__'):
-            set_lr_recursive(model.__dict__[key],new_lr)
-        
-
-
 # context len gets passed by args for some reason
 
 # from sklearn.metrics import root_mean_squared_error
@@ -448,7 +436,7 @@ def main():
                     if len(all_val_losses) >= 4 and val_runs_with_current_lr > 3:
 
                         if loss_val_mean.item() > all_val_losses[-2] and loss_val_mean.item() > all_val_losses[-3]:
-                            set_lr_recursive(model, model.lr * 0.5)
+                            model.set_lr(model.lr * 0.5)
                             status.update(f"Decreased learning rate to {model.lr}")
                             val_runs_with_current_lr = 0
 
