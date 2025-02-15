@@ -225,7 +225,7 @@ def main():
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
     wandb.init(
-        mode="disabled",  # disable wandb
+        # mode="disabled",  # disable wandb
         # Set the project where this run will be logged
         project="tfs",
         # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
@@ -376,12 +376,12 @@ def main():
                     losses_val[k] = loss.item()
 
                     # descending order
-                    sorted_logits = xp.argsort(logits)[:, ::-1]
-                    top1_preds = sorted_logits[:, 0]
-                    top5_preds = sorted_logits[:, :5]
+                    sorted_logits = xp.argsort(logits,axis=2)[:, ::-1]
+                    top1_preds = sorted_logits[:,0, 0]
+                    top5_preds = sorted_logits[:,0, :5]
 
                     for i in range(Y.shape[0]):
-                        if top1_preds[i] == Y[i]:
+                        if top1_preds[i].argmax() == Y[i]:
                             top1_correct += 1
                         if Y[i] in top5_preds[i]:
                             top5_correct += 1
@@ -399,8 +399,8 @@ def main():
                 wandb.log(
                     {
                         "val_loss": loss_val_mean.item(),
-                        "val_top1_err": 1.0 - top1_accuracy,
-                        "val_top5_err": 1.0 - top5_accuracy,
+                        #"val_top1_err": 1.0 - top1_accuracy,
+                        #"val_top5_err": 1.0 - top5_accuracy,
                         "val_top1_accuracy": top1_accuracy,
                         "val_top5_accuracy": top5_accuracy,
                     },
