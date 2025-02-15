@@ -130,8 +130,11 @@ class Dataset:
             )
             selected_genres.append(self.genre_to_idx(selected_genre))
             selected_slice_idx = rng.integers(len(self.sliced_tracks[selected_genre]))
+            slice = self.sliced_tracks[selected_genre][selected_slice_idx]
+            slice = list(slice)
+            slice[0] = 3  # 3 is the genre token
             selected_slices.append(
-                self.sliced_tracks[selected_genre][selected_slice_idx]
+                slice
             )
 
         x = np.stack(selected_slices)
