@@ -16,6 +16,20 @@ n_genres = 27
 n_blocks = 6
 n_embd = 384
 dropout = 0.1
+
+
+# learn rate setter:
+def set_lr_recursive(model,new_lr:float):
+    for key in model.__dict__.keys():
+        if isinstance(model.__dict__[key],NoneType):
+            continue
+        if hasattr(model.__dict__[key],'lr'):
+            model.__dict__[key].lr = new_lr
+        if hasattr(model.__dict__[key],'__dict__'):
+            set_lr_recursive(model.__dict__[key],new_lr)
+        
+
+
 # context len gets passed by args for some reason
 
 # from sklearn.metrics import root_mean_squared_error
@@ -295,6 +309,8 @@ def main():
     )
 
     step = 0
+    all_val_losses = []
+    val_runs_with_current_lr = 0
     # with status_console.screen():
     with Live(header_panel):
 
@@ -355,7 +371,7 @@ def main():
             # Evaluate the loss on train/val sets and write checkpoints
 
             if iter_num % args.eval_interval == 0:
-
+                val_runs_with_current_lr+=1
                 losses_val = xp.zeros(args.eval_iters)
 
                 top1_correct = 0
@@ -395,7 +411,7 @@ def main():
                 loss_val_mean = losses_val.mean()
                 top1_accuracy = top1_correct / total_samples * 100
                 top5_accuracy = top5_correct / total_samples * 100
-
+                all_val_losses.append(loss_val_mean.item())
                 wandb.log(
                     {
                         "val_loss": loss_val_mean.item(),
@@ -427,6 +443,14 @@ def main():
                     status.update(f"Saved checkpoint under {checkpoint_path}")
 
                     best_val_loss = loss_val_mean
+                else:
+                    # check if we should decrease the learning rate
+                    if len(all_val_losses) >= 4 and val_runs_with_current_lr > 3:
+
+                        if loss_val_mean.item() > all_val_losses[-2] and loss_val_mean.item() > all_val_losses[-3]:
+                            set_lr_recursive(model, model.lr * 0.5)
+                            status.update(f"Decreased learning rate to {model.lr}")
+                            val_runs_with_current_lr = 0
 
             iter_num += 1
 
