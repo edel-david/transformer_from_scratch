@@ -376,14 +376,14 @@ def main():
                     losses_val[k] = loss.item()
 
                     # descending order
-                    sorted_logits = xp.argsort(logits,axis=2)[:, ::-1]
+                    sorted_logits = xp.argsort(logits,axis=2)[:,:,::-1]
                     top1_preds = sorted_logits[:,0, 0]
                     top5_preds = sorted_logits[:,0, :5]
 
                     for i in range(Y.shape[0]):
                         if top1_preds[i].argmax() == Y[i]:
                             top1_correct += 1
-                        if Y[i] in top5_preds[i]:
+                        if Y[i].item() in top5_preds[i]:
                             top5_correct += 1
 
                     total_samples += Y.shape[0]
@@ -393,16 +393,16 @@ def main():
                 progress_step.remove_task(task_id)
 
                 loss_val_mean = losses_val.mean()
-                top1_accuracy = top1_correct / total_samples
-                top5_accuracy = top5_correct / total_samples
+                top1_accuracy = top1_correct / total_samples * 100
+                top5_accuracy = top5_correct / total_samples * 100
 
                 wandb.log(
                     {
                         "val_loss": loss_val_mean.item(),
                         #"val_top1_err": 1.0 - top1_accuracy,
                         #"val_top5_err": 1.0 - top5_accuracy,
-                        "val_top1_accuracy": top1_accuracy,
-                        "val_top5_accuracy": top5_accuracy,
+                        "val_top1_accuracy%": top1_accuracy,
+                        "val_top5_accuracy%": top5_accuracy,
                     },
                     step=step,
                 )
