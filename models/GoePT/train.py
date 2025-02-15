@@ -133,9 +133,7 @@ class Dataset:
             slice = self.sliced_tracks[selected_genre][selected_slice_idx]
             slice = list(slice)
             slice[0] = 3  # 3 is the genre token
-            selected_slices.append(
-                slice
-            )
+            selected_slices.append(slice)
 
         x = np.stack(selected_slices)
         y = np.stack(selected_genres)
@@ -360,6 +358,10 @@ def main():
 
                 losses_val = xp.zeros(args.eval_iters)
 
+                top1_correct = 0
+                top5_correct = 0
+                total_samples = 0
+
                 task_id = progress_step.add_task("Val loss evaluation")
 
                 for k in progress_step.track(
@@ -368,16 +370,43 @@ def main():
 
                     X, Y = get_batch("val")
                     X, Y = cp.asarray(X), cp.asarray(Y)
+                    # logits haben Form (Batches, 1, n_genres)?
                     logits, loss = model.forward(X, Y, False)
 
                     losses_val[k] = loss.item()
+
+                    # descending order
+                    sorted_logits = xp.argsort(logits)[:, ::-1]
+                    top1_preds = sorted_logits[:, 0]
+                    top5_preds = sorted_logits[:, :5]
+
+                    for i in range(Y.shape[0]):
+                        if top1_preds[i] == Y[i]:
+                            top1_correct += 1
+                        if Y[i] in top5_preds[i]:
+                            top5_correct += 1
+
+                    total_samples += Y.shape[0]
 
                     progress_step.advance(task_id)
 
                 progress_step.remove_task(task_id)
 
                 loss_val_mean = losses_val.mean()
-                wandb.log({"val_loss": loss_val_mean.item()}, step=step)
+                top1_accuracy = top1_correct / total_samples
+                top5_accuracy = top5_correct / total_samples
+
+                wandb.log(
+                    {
+                        "val_loss": loss_val_mean.item(),
+                        "val_top1_err": 1.0 - top1_accuracy,
+                        "val_top5_err": 1.0 - top5_accuracy,
+                        "val_top1_accuracy": top1_accuracy,
+                        "val_top5_accuracy": top5_accuracy,
+                    },
+                    step=step,
+                )
+
                 if loss_val_mean < best_val_loss:
 
                     status_update_string = f"Val loss decreased from {best_val_loss:.4f} to {loss_val_mean:.4f}"
