@@ -311,6 +311,7 @@ def main():
     step = 0
     all_val_losses = []
     val_runs_with_current_lr = 0
+    wandb.log({"learning_rate": model.lr}, step=step)
     # with status_console.screen():
     with Live(header_panel):
 
@@ -451,7 +452,7 @@ def main():
                             set_lr_recursive(model, model.lr * 0.5)
                             status.update(f"Decreased learning rate to {model.lr}")
                             val_runs_with_current_lr = 0
-
+                            wandb.log({"learning_rate": model.lr}, step=step)
             iter_num += 1
 
             # termination conditions
