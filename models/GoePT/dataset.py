@@ -28,7 +28,7 @@ class Track:
 class Dataset:
     tracks: dict[str, list[Track]]
 
-    def __init__(self, name, data_dir="data", context_length=256, uniform=False):
+    def __init__(self, name, data_dir="data", context_length=256, uniform=False, only_genres=None):
         self.name = name
         self.sliced_tracks = None
         self.uniform = uniform
@@ -41,6 +41,8 @@ class Dataset:
 
         for genre in _genres:
             if genre.startswith("GENRE_"):
+                if only_genres is not None and genre[6:] not in only_genres:
+                    continue
                 self.genres.append(genre[6:])
 
         self.genres = sorted(self.genres)
