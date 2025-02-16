@@ -64,7 +64,7 @@ class Track:
 class Dataset:
     tracks: dict[str, list[Track]]
 
-    def __init__(self, name, data_dir="data"):
+    def __init__(self, name, data_dir="data", context_length=256):
         self.name = name
         self.sliced_tracks = None
 
@@ -101,6 +101,8 @@ class Dataset:
                         self.tracks[genre].append(track)
                     else:
                         raise FileNotFoundError(f"Tokenized file {file} not found")
+        
+        self.get_slices(context_length=context_length)
         self.genre_probabilities = np.array(
             [len(self.sliced_tracks[genre]) for genre in self.sliced_tracks.keys()]
         )
@@ -269,8 +271,8 @@ def main():
     # rng = xp.random.default_rng(args.seed)
     np_rng = np.random.default_rng(args.seed)
 
-    train_set = Dataset("train")
-    validation_set = Dataset("val")
+    train_set = Dataset("train", context_length=args.context_length)
+    validation_set = Dataset("val", context_length=args.context_length)
 
     train_set.get_slices(args.context_length)
     validation_set.get_slices(args.context_length)

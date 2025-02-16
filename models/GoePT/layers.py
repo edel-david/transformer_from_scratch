@@ -25,7 +25,7 @@ from cupy.typing import ArrayLike
 
 sys.path.append(".")
 
-from .utils import compress_numpy_array, decompress_numpy_array
+from utils import compress_numpy_array, decompress_numpy_array
 
 
 class Linear:
