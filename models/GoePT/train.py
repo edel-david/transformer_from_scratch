@@ -64,9 +64,10 @@ class Track:
 class Dataset:
     tracks: dict[str, list[Track]]
 
-    def __init__(self, name, data_dir="data", context_length=256):
+    def __init__(self, name, data_dir="data", context_length=256, uniform=False):
         self.name = name
         self.sliced_tracks = None
+        self.uniform = uniform
 
         if not os.path.exists(os.path.join(data_dir, "tokenized", name)):
             raise FileNotFoundError(f"Dataset {name} not found")
@@ -130,9 +131,15 @@ class Dataset:
 
         selected_slices = []
         selected_genres = []
-        selected_genres_strings = rng.choice(
-                list(self.sliced_tracks.keys()), p=self.genre_probabilities
-            ,size=(batch_size,))
+        if self.uniform:
+            selected_genres_strings = rng.choice(
+                list(self.sliced_tracks.keys()), size=(batch_size,)
+            )
+        else:
+            selected_genres_strings = rng.choice(
+                    list(self.sliced_tracks.keys()), p=self.genre_probabilities
+                ,size=(batch_size,))
+            
         for selected_genre in selected_genres_strings:
             selected_genres.append(self.genre_to_idx(selected_genre))
             selected_slice_idx = rng.integers(len(self.sliced_tracks[selected_genre]))
@@ -150,6 +157,7 @@ class Dataset:
 def compute_gradient(target, prediction, one_hot_lookup):
 
     target = xp.stack([one_hot_lookup[token] for token in target]).reshape(prediction.shape)
+
     grad = prediction - target
     grad = grad/np.prod(target.shape[:-1])
     return grad, target
@@ -195,7 +203,7 @@ def main():
         metavar="N",
         help="input batch size for training (default: 16)",
     )
-    parser.add_argument("--context-length", type=int, default=256)
+    parser.add_argument("--context-length", type=int, default=512)
     parser.add_argument(
         "--epochs",
         type=int,
@@ -270,7 +278,7 @@ def main():
     np_rng = np.random.default_rng(args.seed)
 
     train_set = Dataset("train", context_length=args.context_length)
-    validation_set = Dataset("val", context_length=args.context_length)
+    validation_set = Dataset("val", context_length=args.context_length, uniform=True)
 
     train_set.get_slices(args.context_length)
     validation_set.get_slices(args.context_length)
