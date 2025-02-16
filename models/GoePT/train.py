@@ -237,6 +237,15 @@ def main():
 
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
+    train_set = Dataset("train", context_length=args.context_length)
+    validation_set = Dataset("val", context_length=args.context_length, uniform=True)
+
+    train_set.get_slices(args.context_length)
+    validation_set.get_slices(args.context_length)
+
+    n_genres = len(train_set.genres)
+    assert len(train_set.genres) == len(validation_set.genres), "Different number of genres in train and validation set"
+
     wandb.init(
         # mode="disabled",  # disable wandb
         # Set the project where this run will be logged
@@ -276,12 +285,6 @@ def main():
 
     # rng = xp.random.default_rng(args.seed)
     np_rng = np.random.default_rng(args.seed)
-
-    train_set = Dataset("train", context_length=args.context_length)
-    validation_set = Dataset("val", context_length=args.context_length, uniform=True)
-
-    train_set.get_slices(args.context_length)
-    validation_set.get_slices(args.context_length)
 
     def get_batch(set_name):
         if set_name == "train":
