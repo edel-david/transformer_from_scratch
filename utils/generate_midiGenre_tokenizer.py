@@ -30,25 +30,19 @@ def get_hashes(csv_path):
 
 def create_tokenizer(unique_genres):
 
-    # handle spaces or dashes as you please
-    # e.g. "Hip-Hop" => "BOS_Hip-Hop" is fine, as it only has one underscore
-    # which is required by MIDITok to parse "type_value"
-    # If the name itself has underscores, they might be turned into dashes.
-    # If you want to avoid confusion, you could replace spaces/dashes yourself.
-    genre_special_tokens = [f"GENRE_{genre}" for genre in unique_genres]
-
     # Custom Params for Tokenizer
     TOKENIZER_PARAMS = {
         "pitch_range": (21, 109),
         "beat_res": {(0, 4): 8, (4, 12): 4},
         "num_velocities": 32,
-        "special_tokens": ["PAD", "EOS", "MASK"] + genre_special_tokens,
+        "special_tokens": ["PAD", "EOS", "MASK", "GENRE"],
         "use_chords": True,
         "use_rests": False,
         "use_tempos": True,
         "use_time_signatures": False,
         "use_programs": True,
         "num_tempos": 32,
+        "one_token_stream_for_programs": True,
         "tempo_range": (40, 250),
     }
 
