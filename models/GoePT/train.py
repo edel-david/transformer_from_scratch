@@ -149,12 +149,9 @@ class Dataset:
 
 def compute_gradient(target, prediction, one_hot_lookup):
 
-    target = xp.stack([one_hot_lookup[token] for token in target])
-
+    target = xp.stack([one_hot_lookup[token] for token in target]).reshape(prediction.shape)
     grad = prediction - target
-
     grad = grad/np.prod(target.shape[:-1])
-
     return grad, target
 
 def get_log_output_table(log_output_buffer: deque) -> Table:
@@ -249,6 +246,7 @@ def main():
 
     model = GoePT(
         n_genres,
+        vocab_size = 483,
         context_length=args.context_length,
         n_layer=n_blocks,
         n_embd=n_embd,
@@ -337,10 +335,6 @@ def main():
                 grad, target = compute_gradient(
                     Y, logits, one_hot_lookup
                 )  # target is Y but one-hot-stacked
-
-                # Continue backward
-                
-
                 model.backward(grad)
 
                 log_output_buffer.append(
