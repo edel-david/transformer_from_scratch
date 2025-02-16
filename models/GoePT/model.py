@@ -82,7 +82,7 @@ class GoePT:
 
         self.transformer = {
             "wte": scr.Embedding(
-                self.vocab_size + 1,
+                self.vocab_size,
                 self.n_embd,
                 self.batch_size,
                 self.lr,
@@ -145,12 +145,6 @@ class GoePT:
             t <= self.context_length
         ), f"Cannot forward sequence of length {t}, block size is only {self.context_length}"
         pos = np.arange(0, t, dtype=np.int64)  # shape (t)
-
-        # replace the first token with the classification token:
-        idx[:, 0] = (
-            self.vocab_size
-        )  # because the normal embedding uses indices 0 to vocab_size-1,
-        # we can use vocab_size as the classification token.
 
         # Forward the GPT model itself
         # Token embeddings of shape (b, t, n_embd)

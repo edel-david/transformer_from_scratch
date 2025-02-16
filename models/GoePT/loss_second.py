@@ -1,7 +1,7 @@
 import numpy as np
 import cupy as cp
 from numpy.typing import ArrayLike
-from .layers import Softmax
+from layers import Softmax
 
 eps = 1e-7  # between 1e-6 and 1e-9
 

@@ -14,7 +14,7 @@ import numpy as np
 xp = cp
 n_genres = 27
 n_blocks = 6
-n_embd = 384
+n_embd = 126
 dropout = 0.1
 
 
@@ -101,6 +101,12 @@ class Dataset:
                         self.tracks[genre].append(track)
                     else:
                         raise FileNotFoundError(f"Tokenized file {file} not found")
+        self.genre_probabilities = np.array(
+            [len(self.sliced_tracks[genre]) for genre in self.sliced_tracks.keys()]
+        )
+        self.genre_probabilities = self.genre_probabilities / self.genre_probabilities.sum()
+
+
 
     def genre_to_idx(self, genre):
         return self._genres_to_idx[genre]
@@ -119,17 +125,13 @@ class Dataset:
         return self.sliced_tracks
 
     def get_batch_from_slices(self, batch_size, rng):
-        genre_probabilities = np.array(
-            [len(self.sliced_tracks[genre]) for genre in self.sliced_tracks.keys()]
-        )
-        genre_probabilities = genre_probabilities / genre_probabilities.sum()
 
         selected_slices = []
         selected_genres = []
-        for _ in range(batch_size):
-            selected_genre = rng.choice(
-                list(self.sliced_tracks.keys()), p=genre_probabilities
-            )
+        selected_genres_strings = rng.choice(
+                list(self.sliced_tracks.keys()), p=self.genre_probabilities
+            ,size=(batch_size,))
+        for selected_genre in selected_genres_strings:
             selected_genres.append(self.genre_to_idx(selected_genre))
             selected_slice_idx = rng.integers(len(self.sliced_tracks[selected_genre]))
             slice = self.sliced_tracks[selected_genre][selected_slice_idx]
@@ -144,12 +146,14 @@ class Dataset:
 
 
 def compute_gradient(target, prediction, one_hot_lookup):
-    target = xp.stack([one_hot_lookup[token] for token in target]).reshape(
-        -1, 1, one_hot_lookup.shape[0]
-    )
-    # (prediction - target) should have shape: (batch_size,1, n_genres)
-    return (prediction - target), target
 
+    target = xp.stack([one_hot_lookup[token] for token in target])
+
+    grad = prediction - target
+
+    grad = grad/np.prod(target.shape[:-1])
+
+    return grad, target
 
 def get_log_output_table(log_output_buffer: deque) -> Table:
 
@@ -328,12 +332,12 @@ def main():
                 # disable logging into csv. Use wandb instead
 
                 # Get raw gradient
-                raw_grad, target = compute_gradient(
+                grad, target = compute_gradient(
                     Y, logits, one_hot_lookup
                 )  # target is Y but one-hot-stacked
 
                 # Continue backward
-                grad = loss * raw_grad
+                
 
                 model.backward(grad)
 
@@ -437,7 +441,7 @@ def main():
                     if len(all_val_losses) >= 4 and val_runs_with_current_lr > 3:
 
                         if loss_val_mean.item() > all_val_losses[-2] and loss_val_mean.item() > all_val_losses[-3]:
-                            model.set_lr(model.lr * 0.5)
+                            model.set_lr(max( model.lr * 0.5,1e-7))
                             status.update(f"Decreased learning rate to {model.lr}")
                             val_runs_with_current_lr = 0
                             wandb.log({"learning_rate": model.lr}, step=step)

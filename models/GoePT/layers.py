@@ -25,7 +25,7 @@ from cupy.typing import ArrayLike
 
 sys.path.append(".")
 
-from utils import compress_numpy_array, decompress_numpy_array
+from .utils import compress_numpy_array, decompress_numpy_array
 
 
 class Linear:
@@ -512,6 +512,7 @@ class MultiHeadAttention:
             3 * d_model,
             batch_size,
             lr,
+            bias=False,
             weight_init_func=c_attn_weight_init_func,
             bias_init_func=bias_init_func,  # this will be zeros(shape)
         )
@@ -520,7 +521,7 @@ class MultiHeadAttention:
             d_model,
             d_model,
             batch_size,
-            lr,
+            lr,bias=False,
             weight_init_func=c_proj_weight_init_func,
             bias_init_func=bias_init_func,  # this will be zeros(shape)
         )
