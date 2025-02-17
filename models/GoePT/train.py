@@ -12,10 +12,11 @@ import cupy as cp
 import numpy as np
 
 xp = cp
-n_genres = 27
-n_blocks = 6
-n_embd = 126
+n_genres = 2
+n_blocks = 5
+n_embd = 102
 dropout = 0.1
+vocab_size = 483
 
 
 # context len gets passed by args for some reason
@@ -30,6 +31,7 @@ from icecream import ic
 
 sys.path.append(".")
 
+from layers import Softmax
 from model import GoePT
 from dataset import Dataset
 
@@ -121,7 +123,7 @@ def main():
 
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
-    train_set = Dataset("train", context_length=args.context_length)
+    train_set = Dataset("train", context_length=args.context_length, uniform=True)
     validation_set = Dataset("val", context_length=args.context_length, uniform=True)
 
     train_set.get_slices(args.context_length)
@@ -147,7 +149,7 @@ def main():
 
     model = GoePT(
         n_genres,
-        vocab_size = 483,
+        vocab_size =vocab_size,
         context_length=args.context_length,
         n_layer=n_blocks,
         n_embd=n_embd,
@@ -155,6 +157,8 @@ def main():
         batch_size=args.batch_size,
         lr=args.lr,
     )
+    # model.transformer["wte"].weight[3].fill(0) # this would deactivate the embedding token embedding
+    # model.transformer["wpe"].weight[0].fill(0)
 
     # state_dict = model.state_dict()
     # with open(os.path.join(args.checkpoint_dir, 'test_checkpoint.json'), mode='w', encoding='utf-8') as out_file:
@@ -175,6 +179,14 @@ def main():
             return train_set.get_batch_from_slices(args.batch_size, np_rng)
         if set_name == "val":
             return validation_set.get_batch_from_slices(args.batch_size, np_rng)
+
+    def get_batch_triv(set_name):
+        x = cp.random.randint(4,7, (args.batch_size,args.context_length))
+        selected = cp.zeros((args.batch_size,),dtype=cp.int64)
+        selected[:args.batch_size//2]=1
+        x = x + selected.reshape((-1,1)) * cp.full((1,args.context_length,),10)
+        x[:,0]=3
+        return x, selected
 
     # Pre-generate one-hot vectors using the vocab size
     # for gradient computation
@@ -219,13 +231,6 @@ def main():
 
                 logits, loss = model.forward(X, targets=Y, train=True)
                 wandb.log({"train_loss": loss.item()}, step=step)
-                # Scale the loss to account for gradient accumulation
-                loss = loss / args.gradient_accumulation_steps
-
-                # with open("train_losses.csv", "a") as f:
-                #     f.write(f"{iter_num}\t{loss:.8f}\n")
-                # disable logging into csv. Use wandb instead
-
                 # Get raw gradient
                 grad, target = compute_gradient(
                     Y, logits, one_hot_lookup
@@ -236,7 +241,7 @@ def main():
                     (
                         datetime.datetime.now().isoformat(),
                         iter_num + 1,
-                        loss.item() * args.gradient_accumulation_steps,
+                        loss.item()
                     )
                 )
 
@@ -260,7 +265,7 @@ def main():
 
                 top1_correct = 0
                 top5_correct = 0
-                total_samples = 0
+                total_samples = args.eval_iters * args.batch_size
 
                 task_id = progress_step.add_task("Val loss evaluation")
 
@@ -271,22 +276,10 @@ def main():
                     X, Y = get_batch("val")
                     X, Y = cp.asarray(X), cp.asarray(Y)
                     # logits haben Form (Batches, 1, n_genres)?
-                    logits, loss = model.forward(X, Y, False)
+                    logits, loss = model.forward(X,targets=Y,train= False)
 
                     losses_val[k] = loss.item()
-
-                    # descending order
-                    sorted_logits = xp.argsort(logits,axis=2)[:,:,::-1]
-                    top1_preds = sorted_logits[:,0, 0]
-                    top5_preds = sorted_logits[:,0, :5]
-
-                    for i in range(Y.shape[0]):
-                        if top1_preds[i].argmax() == Y[i]:
-                            top1_correct += 1
-                        if Y[i].item() in top5_preds[i]:
-                            top5_correct += 1
-
-                    total_samples += Y.shape[0]
+                    top1_correct += (cp.argmax(logits,-1).flatten()==Y).sum().item()
 
                     progress_step.advance(task_id)
 
@@ -294,7 +287,7 @@ def main():
 
                 loss_val_mean = losses_val.mean()
                 top1_accuracy = top1_correct / total_samples * 100
-                top5_accuracy = top5_correct / total_samples * 100
+                # top5_accuracy = top5_correct / total_samples * 100
                 all_val_losses.append(loss_val_mean.item())
                 wandb.log(
                     {
@@ -302,7 +295,7 @@ def main():
                         #"val_top1_err": 1.0 - top1_accuracy,
                         #"val_top5_err": 1.0 - top5_accuracy,
                         "val_top1_accuracy%": top1_accuracy,
-                        "val_top5_accuracy%": top5_accuracy,
+                        #"val_top5_accuracy%": top5_accuracy,
                     },
                     step=step,
                 )
@@ -329,10 +322,10 @@ def main():
                     best_val_loss = loss_val_mean
                 else:
                     # check if we should decrease the learning rate
-                    if len(all_val_losses) >= 4 and val_runs_with_current_lr > 3:
+                    if len(all_val_losses) >= 5 and val_runs_with_current_lr > 4:
 
-                        if loss_val_mean.item() > all_val_losses[-2] and loss_val_mean.item() > all_val_losses[-3]:
-                            model.set_lr(max( model.lr * 0.5,1e-7))
+                        if loss_val_mean.item() > all_val_losses[-2] and loss_val_mean.item() > all_val_losses[-3] and loss_val_mean.item() > all_val_losses[-4]:
+                            model.set_lr(max( model.lr * 0.5,1e-4))
                             status.update(f"Decreased learning rate to {model.lr}")
                             val_runs_with_current_lr = 0
                             wandb.log({"learning_rate": model.lr}, step=step)

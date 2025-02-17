@@ -5,7 +5,7 @@ import time
 import argparse
 from functools import partial
 import json
-
+import cupy as cp
 import numpy as np
 
 from tokenizers import Tokenizer
@@ -68,17 +68,27 @@ class GoePT:
         # Define lm_head first so we can pass its
         # weights_transposed property to the wte
         # embedding to implement weight tying
-
+        self.sm = scr.Softmax(-1)
         self.lm_head = scr.Linear(
             self.n_embd,
-            # self.vocab_size, OLD
-            self.n_genres,
+            self.n_genres, # n_embed * 3 # depends on head architecture
             self.batch_size,
             bias=False,
             lr=self.lr,
             weight_init_func=weight_init,
             bias_init_func=bias_init,
         )
+        # if we want a more complicated head:
+        # self.lm_gelu = scr.GELU()
+        # self.end_head = scr.Linear(
+        #     n_embd * 3,
+        #     self.n_genres,
+        #     self.batch_size,
+        #     lr=self.lr,
+        #     bias=False,
+        #     weight_init_func=weight_init,
+        #     bias_init_func=bias_init,
+        # )
 
         self.transformer = {
             "wte": scr.Embedding(
@@ -122,7 +132,7 @@ class GoePT:
         # self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
 
         # assert id(self.transformer['wte'].weight) == id(self.lm_head.weight), "wte and lm_head must share the same weights in memory"
-    
+
     def set_lr(self, lr):
         def recursive_set_lr(obj):
             if hasattr(obj, "lr"):
@@ -136,7 +146,7 @@ class GoePT:
             if hasattr(obj, "__dict__"):
                 for attr in obj.__dict__:
                     recursive_set_lr(getattr(obj, attr))
-        
+
         recursive_set_lr(self)
 
     def forward(self, idx, targets=None, train=False):
@@ -163,7 +173,9 @@ class GoePT:
         logits = self.lm_head.forward(
             x[:, [0], :]
         )  # pass the first token, the classification token, to the lm_head.
-
+        #logits = self.lm_gelu.forward(logits)
+        #logits = self.end_head.forward(logits)
+        # logits = self.sm.forward(logits * 10)
         if (
             targets is not None
         ):  # branch on knowledge of right answer: If known, calculate loss. else only return logits.
@@ -180,8 +192,13 @@ class GoePT:
         return logits, loss
 
     def backward(self, x):
+        #grad = self.end_head.backward(x)
+        #grad = self.lm_gelu.backward(grad)
         grad = self.lm_head.backward(x)
-        grad = self.transformer["ln_f"].backward(grad)
+        # here, place some zeros:
+        upstream_grad_for_ln = cp.zeros((self.batch_size,self.context_length,self.n_embd))
+        upstream_grad_for_ln[:,0,:]=grad.squeeze()
+        grad = self.transformer["ln_f"].backward(upstream_grad_for_ln)
 
         for block in reversed(self.transformer["h"]):
             grad = block.backward(grad)
@@ -191,6 +208,7 @@ class GoePT:
         return
 
     def update(self):
+        # self.end_head.update()
         self.lm_head.update()
         self.transformer["ln_f"].update()
         for block in self.transformer["h"]:
@@ -202,6 +220,7 @@ class GoePT:
     def state_dict(self):
 
         params_all = {
+            # "end_head":[compress_numpy_array(self.end_head.weight),compress_numpy_array(self.end_head.bias)],
             "lm_head": [
                 compress_numpy_array(self.lm_head.weight),
                 compress_numpy_array(self.lm_head.bias),
@@ -242,6 +261,11 @@ class GoePT:
             state_dict["dropout"],
             state_dict["lr"],
         )
+
+        # goe_pt.end_head.weight = decompress_numpy_array(
+        #     state_dict["params"]["end_head"][0]
+        # )
+        # goe_pt.end_head.bias = decompress_numpy_array(state_dict["params"]["end_head"][1])
 
         goe_pt.lm_head.weight = decompress_numpy_array(
             state_dict["params"]["lm_head"][0]
