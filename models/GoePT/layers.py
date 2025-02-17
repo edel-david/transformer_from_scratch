@@ -303,67 +303,31 @@ class LayerNorm:
         self.x_centered = None
         self.stddev_inv = None
 
-    def forward(self, input: ArrayLike) -> cp.ndarray:
-
-        input = cp.asanyarray(input)
-
-        self.input = input
-
+    def forward(self, input_x: ArrayLike) -> cp.ndarray:
+        input_x = cp.asanyarray(input_x)
         self.axis = tuple(range(-len(self.normalized_shape), 0))
-        #  -n,..., -2 , -1 ohne 0
+        #  (-1) if normalized shape is one dimensional
 
-        mean = cp.mean(input, axis=self.axis, keepdims=True)
+        mean = cp.mean(input_x, axis=self.axis, keepdims=True)
         var = cp.var(
-            input,
+            input_x,
             axis=self.axis,
             keepdims=True,  # mean=mean
         )  # can we pass the mean to the var()?  YES (with newer numpy versions)!
         # the var stays the same after centering. Usefull for gradient calculation (not really)
-        self.x_centered = input - mean
+        x_centered = input_x - mean
         self.stddev_inv = 1 / cp.sqrt(var + self.eps)
 
-        output = self.x_centered * self.stddev_inv
+        self.output = x_centered * self.stddev_inv
 
-        return self.weight * output + self.bias
+        return self.weight * self.output + self.bias
 
-    def backward_old(self, grad: ArrayLike) -> cp.ndarray:
-        B, T, C = self.input.shape
-        self.grad_bias = grad.mean(axis=(0, 1))  # upstream gradient * 1.
-        self.grad_weight = (grad * (self.x_centered * self.stddev_inv)).mean(
-            axis=(0, 1)
-        )  # upstream * centered * invvar
-
-        normalized = self.x_centered * self.stddev_inv
-        grad_normalized = grad * self.weight
-        grad_x = (
-            grad_normalized
-            - grad_normalized.mean(-1, keepdims=True)
-            - normalized * (grad_normalized * normalized).mean(-1, keepdims=True)
-        )
-        grad_x = grad_x * self.stddev_inv
-        return grad_x
-
-    def backward(self, upstream_grad: ArrayLike) -> ArrayLike:
-        self.grad_bias += upstream_grad.mean(axis=(0, 1))  # upstream gradient * 1.
-        self.grad_weight += (upstream_grad * (self.x_centered * self.stddev_inv)).mean(
-            axis=(0, 1)
-        )  # upstream * centered * invvar
-
-        s1 = (upstream_grad * self.weight * self.input).mean(-1, keepdims=True)
-        # mean instead of sum, to avoid division by N
-        grad_normalized = upstream_grad * self.weight
-        lambd = (
-            grad_normalized.sum(-1, keepdims=True) * self.input.mean(-1, keepdims=True)
-            - s1 * self.stddev_inv**3
-        )
-        theta = (
-            -lambd * self.input.mean(-1, keepdims=True)
-            - grad_normalized.mean(-1, keepdims=True) * self.stddev_inv
-        )
-        grad_x = (
-            self.stddev_inv * upstream_grad * self.weight + lambd * self.input + theta
-        )
-        return grad_x
+    def backward(self,grad_upstream:ArrayLike)->ArrayLike:
+        self.grad_bias = grad_upstream.sum((0,1))
+        self.grad_weight = (grad_upstream * self.output).sum((0,1))
+        delnorm = grad_upstream * self.weight
+        grad_out = delnorm -delnorm.mean(self.axis,keepdims=True)-self.output * (delnorm * self.output).mean(self.axis,keepdims=True)
+        return grad_out
 
     def update(self):
         self.weight -= self.lr * self.grad_weight
@@ -688,19 +652,16 @@ class Embedding:
         self.grad_weight = cp.zeros((num_embeddings, embedding_dim))
 
     def forward(self, input: ArrayLike) -> cp.ndarray:
-        global step
         self.input = cp.asanyarray(input)
         return self.weight[self.input.astype(cp.int32), :]
 
     def backward(self, grad_output: ArrayLike) -> cp.ndarray:
-        self.grad_weight.fill(0)
-        self.grad_weight[self.input] += grad_output
-        return
-        # raise NotImplementedError("Implement the Embedding backward path")
+        cp.add.at(self.grad_weight,self.input.flatten(), grad_output.reshape((-1,self.embedding_dim,))) 
+
 
     def update(self):
         self.weight -= self.lr * self.grad_weight
-
+        self.grad_weight.fill(0)
 
 class Block:
     def __init__(

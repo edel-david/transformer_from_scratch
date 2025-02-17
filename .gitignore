@@ -11,3 +11,5 @@ nohup.out
 
 # Dataset
 data/
+data_all/
+grad_attention.png
