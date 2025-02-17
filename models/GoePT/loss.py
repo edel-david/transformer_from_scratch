@@ -3,7 +3,7 @@ import cupy as cp
 from numpy.typing import ArrayLike
 from layers import Softmax
 
-eps = 1e-7  # between 1e-6 and 1e-9
+eps = 1e-8  # between 1e-6 and 1e-9
 
 
 def cross_entropy_loss(y_pred: ArrayLike, y_true: ArrayLike) -> cp.ndarray:
