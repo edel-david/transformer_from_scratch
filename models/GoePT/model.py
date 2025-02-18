@@ -31,7 +31,6 @@ ic.disable()
 
 
 class GoePT:
-
     def __init__(
         self,
         n_genres: int,
@@ -71,9 +70,9 @@ class GoePT:
         self.sm = scr.Softmax(-1)
         self.lm_head = scr.Linear(
             self.n_embd,
-            self.n_genres, # n_embed * 3 # depends on head architecture
+            self.n_genres, # n_embed * 3 or n_genres # depends on head architecture
             self.batch_size,
-            bias=False,
+            bias=False, # change! if head change
             lr=self.lr,
             weight_init_func=weight_init,
             bias_init_func=bias_init,
@@ -164,7 +163,7 @@ class GoePT:
         pos_emb = self.transformer["wpe"].forward(pos)
 
         # Main transformer
-        x = self.transformer["drop"].forward(tok_emb + pos_emb, True)
+        x = self.transformer["drop"].forward(tok_emb + pos_emb, train)
         for block in self.transformer["h"]:
             x = block.forward(x, train)
         x = self.transformer["ln_f"].forward(x)
@@ -175,7 +174,7 @@ class GoePT:
         )  # pass the first token, the classification token, to the lm_head.
         #logits = self.lm_gelu.forward(logits)
         #logits = self.end_head.forward(logits)
-        # logits = self.sm.forward(logits * 10)
+        logits = self.sm.forward(logits)
         if (
             targets is not None
         ):  # branch on knowledge of right answer: If known, calculate loss. else only return logits.
@@ -184,7 +183,7 @@ class GoePT:
             ic(logits.shape, targets.shape)
             logits_for_loss = logits.reshape(-1, logits.shape[-1])
             targets_for_loss = np.expand_dims(targets.reshape(-1), 1)
-            targets_for_loss = scr.one_hot(targets_for_loss, self.n_genres)
+            targets_for_loss = scr.one_hot(targets_for_loss, self.n_genres).reshape((targets.shape[0],-1)) #! check if reshape is correct
             loss = cross_entropy_loss(logits_for_loss, targets_for_loss)
         else:
             loss = None
@@ -194,12 +193,11 @@ class GoePT:
     def backward(self, x):
         #grad = self.end_head.backward(x)
         #grad = self.lm_gelu.backward(grad)
-        grad = self.lm_head.backward(x)
+        grad = self.lm_head.backward(x) # change between x and grad
         # here, place some zeros:
-        upstream_grad_for_ln = cp.zeros((self.batch_size,self.context_length,self.n_embd))
+        upstream_grad_for_ln = cp.zeros((grad.shape[0],self.context_length,self.n_embd))
         upstream_grad_for_ln[:,0,:]=grad.squeeze()
-        grad = self.transformer["ln_f"].backward(upstream_grad_for_ln)
-
+        grad = self.transformer["ln_f"].backward(upstream_grad_for_ln)# very likely correct
         for block in reversed(self.transformer["h"]):
             grad = block.backward(grad)
         grad = self.transformer["drop"].backward(grad)
@@ -208,7 +206,7 @@ class GoePT:
         return
 
     def update(self):
-        # self.end_head.update()
+        #self.end_head.update()
         self.lm_head.update()
         self.transformer["ln_f"].update()
         for block in self.transformer["h"]:
@@ -220,7 +218,7 @@ class GoePT:
     def state_dict(self):
 
         params_all = {
-            # "end_head":[compress_numpy_array(self.end_head.weight),compress_numpy_array(self.end_head.bias)],
+            #"end_mlp":[compress_numpy_array(self.end_head.weight),compress_numpy_array(self.end_head.bias)],
             "lm_head": [
                 compress_numpy_array(self.lm_head.weight),
                 compress_numpy_array(self.lm_head.bias),
@@ -237,6 +235,7 @@ class GoePT:
             params_all[f"block_{idx}"] = block.state_dict()
 
         state_dict = {
+            "n_genres":self.n_genres,
             "vocab_size": self.vocab_size,
             "context_length": self.context_length,
             "batch_size": self.batch_size,
@@ -253,6 +252,7 @@ class GoePT:
     def from_state_dict(cls, state_dict: dict):
 
         goe_pt = cls(
+            state_dict["n_genres"],
             state_dict["vocab_size"],
             state_dict["context_length"],
             state_dict["batch_size"],
@@ -262,9 +262,9 @@ class GoePT:
             state_dict["lr"],
         )
 
-        # goe_pt.end_head.weight = decompress_numpy_array(
-        #     state_dict["params"]["end_head"][0]
-        # )
+        #goe_pt.end_head.weight = decompress_numpy_array(
+        #    state_dict["params"]["end_head"][0]
+        #)
         # goe_pt.end_head.bias = decompress_numpy_array(state_dict["params"]["end_head"][1])
 
         goe_pt.lm_head.weight = decompress_numpy_array(

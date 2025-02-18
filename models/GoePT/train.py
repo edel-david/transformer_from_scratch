@@ -13,8 +13,8 @@ import numpy as np
 
 xp = cp
 n_genres = 2
-n_blocks = 5
-n_embd = 102
+n_blocks = 6
+n_embd = 204
 dropout = 0.1
 vocab_size = 483
 
@@ -45,7 +45,7 @@ def compute_gradient(target, prediction, one_hot_lookup):
     target = xp.stack([one_hot_lookup[token] for token in target]).reshape(prediction.shape)
 
     grad = prediction - target
-    grad = grad/np.prod(target.shape[:-1])
+    # grad = grad/np.prod(target.shape[:-1])
     return grad, target
 
 def get_log_output_table(log_output_buffer: deque) -> Table:
@@ -157,16 +157,18 @@ def main():
         batch_size=args.batch_size,
         lr=args.lr,
     )
+
     # model.transformer["wte"].weight[3].fill(0) # this would deactivate the embedding token embedding
     # model.transformer["wpe"].weight[0].fill(0)
 
     # state_dict = model.state_dict()
     # with open(os.path.join(args.checkpoint_dir, 'test_checkpoint.json'), mode='w', encoding='utf-8') as out_file:
     #     json.dump(state_dict, out_file)
-    # with open(os.path.join(args.checkpoint_dir, 'test_checkpoint.json'), mode='r', encoding='utf-8') as in_file:
+    # with open(os.path.join(args.checkpoint_dir, 'test.json'), mode='r', encoding='utf-8') as in_file:
     #     state_dict = json.load(in_file)
-    # model_loaded = GoePT.from_state_dict(state_dict)
-    # ic(model_loaded)
+    # model = GoePT.from_state_dict(state_dict)
+    # model.set_lr(5e-5)
+    # ic(model)
     # exit()
 
     # training loop
@@ -318,17 +320,21 @@ def main():
                         json.dump(state_dict, out_file)
 
                     status.update(f"Saved checkpoint under {checkpoint_path}")
-
                     best_val_loss = loss_val_mean
+                    val_runs_with_current_lr+=1
                 else:
                     # check if we should decrease the learning rate
                     if len(all_val_losses) >= 5 and val_runs_with_current_lr > 4:
 
                         if loss_val_mean.item() > all_val_losses[-2] and loss_val_mean.item() > all_val_losses[-3] and loss_val_mean.item() > all_val_losses[-4]:
-                            model.set_lr(max( model.lr * 0.5,1e-4))
+                            model.set_lr(max( model.lr * 0.7,1e-5))
                             status.update(f"Decreased learning rate to {model.lr}")
                             val_runs_with_current_lr = 0
                             wandb.log({"learning_rate": model.lr}, step=step)
+                        else:
+                            val_runs_with_current_lr+=1
+                    else:
+                        val_runs_with_current_lr+=1
             iter_num += 1
 
             # termination conditions

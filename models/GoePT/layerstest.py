@@ -174,7 +174,7 @@ class Linear:
     def update(self) -> None:
         self.weight = self.weight - self.lr * (self.grad_weight *(1.0 / self.batch_size))
         if self.use_bias:
-            self.bias = self.bias - self.lr * (self.grad_bias * (1/cp.prod(self.input.shape[:-1])))
+            self.bias = self.bias - self.lr * (self.grad_bias * (1/np.prod(list(self.input.shape[:-1]))))
         self.grad_weight.fill(0)
         self.grad_bias.fill(0)
 

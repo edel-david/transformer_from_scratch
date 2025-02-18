@@ -78,14 +78,13 @@ class Linear:
 
         self.input = cp.zeros((batch_size, in_features))
 
-    def _multi_dim_matmul(
-        self,
-        mat_a: cp.ndarray,
-        mat_b: cp.ndarray,
-        transpose_a: bool = False,
-        transpose_b: bool = False,
-        reshape_output: bool = True,
-    ) -> cp.ndarray:
+    def _multi_dim_matmul(self, # this is the new version
+                            mat_a: np.ndarray,
+                            mat_b: np.ndarray,
+                            transpose_a: bool = False,
+                            transpose_b: bool = False,
+                            reshape_output: bool = True) -> np.ndarray:
+
         """
         Replicate torch behavior of flattening all but the
         last dimension of an input of the matrix multiplication
@@ -99,28 +98,17 @@ class Linear:
             # Dimension handling.
             # We should refactor this if we find the time.
 
-            dims_internal_mat_a = (
-                mat_a.shape
-                if len(mat_a.shape) <= 2
-                else (cp.prod(cp.array(mat_a.shape[:-1])).item(), mat_a.shape[-1])
-            )
+            dims_internal_mat_a = mat_a.shape if len(mat_a.shape) <= 2 else\
+                                    (np.prod(mat_a.shape[:-1]), mat_a.shape[-1])
 
-            dims_internal_mat_b = (
-                mat_b.shape
-                if len(mat_b.shape) <= 2
-                else (cp.prod(cp.array(mat_b.shape[:-1])).item(), mat_b.shape[-1])
-            )
+            dims_internal_mat_b = mat_b.shape if len(mat_b.shape) <= 2 else\
+                                    (np.prod(mat_b.shape[:-1]), mat_b.shape[-1])
 
             # mat_a_shape = mat_a.shape[::-1] if transpose_a else mat_a.shape
             mat_b_shape = mat_b.shape[::-1] if transpose_b else mat_b.shape
 
-            dims_out_first = (
-                mat_a.shape[:-1]
-                if reshape_output
-                else (
-                    dims_internal_mat_a[1] if transpose_a else dims_internal_mat_a[0],
-                )
-            )
+            dims_out_first = mat_a.shape[:-1] if reshape_output else\
+                    (dims_internal_mat_a[1] if transpose_a else dims_internal_mat_a[0],)
 
             dims_out = (*dims_out_first, mat_b_shape[-1])
 
@@ -136,11 +124,23 @@ class Linear:
                 else:
                     return mat_b.reshape(dims_internal_mat_b)
 
-            return cp.matmul(mat_a_transform(), mat_b_transform()).reshape(dims_out)
+            return np.matmul(mat_a_transform(),
+                                mat_b_transform()).reshape(dims_out)
 
         else:
-            return cp.matmul(mat_a, mat_b.T) if transpose_b else cp.matmul(mat_a, mat_b)
+            # Code deduplication, yeahhhh...
+            def mat_a_transform():
+                if transpose_a:
+                    return mat_a.T
+                else:
+                    return mat_a
 
+            def mat_b_transform():
+                if transpose_b:
+                    return mat_b.T
+                else:
+                    return mat_b
+            return np.matmul(mat_a_transform(), mat_b_transform())
     def forward(self, input: ArrayLike) -> cp.ndarray:
 
         self.input = cp.asanyarray(input)
@@ -162,19 +162,19 @@ class Linear:
         #     grad_output.shape[-1],
         # )
 
-        self.grad_weight += (1.0 / self.batch_size) * self._multi_dim_matmul(
+        self.grad_weight +=   self._multi_dim_matmul(
             self.input, grad_output, transpose_a=True, reshape_output=False
         )
 
         if self.use_bias:
             # self.grad_bias = (1.0 / self.batch_size) * grad_output.sum(0)
-            self.grad_bias += grad_output.mean((0, 1))
+            self.grad_bias += grad_output.sum(tuple(range(grad_output.ndim - 1)))
         return grad_input
 
     def update(self) -> None:
-        self.weight = self.weight - self.lr * self.grad_weight
+        self.weight = self.weight - self.lr * (self.grad_weight *(1.0 / self.batch_size))
         if self.use_bias:
-            self.bias = self.bias - self.lr * self.grad_bias
+            self.bias = self.bias - self.lr * (self.grad_bias * (1/np.prod(list(self.input.shape[:-1]))))
         self.grad_weight.fill(0)
         self.grad_bias.fill(0)
 
@@ -326,7 +326,8 @@ class LayerNorm:
         self.grad_bias = grad_upstream.sum((0,1))
         self.grad_weight = (grad_upstream * self.output).sum((0,1))
         delnorm = grad_upstream * self.weight
-        grad_out = delnorm -delnorm.mean(self.axis,keepdims=True)-self.output * (delnorm * self.output).mean(self.axis,keepdims=True)
+        grad_out = delnorm - delnorm.mean(self.axis,keepdims=True)-self.output * (delnorm * self.output).mean(self.axis,keepdims=True)
+        grad_out= grad_out * self.stddev_inv
         return grad_out
 
     def update(self):
@@ -365,6 +366,7 @@ class GELU:
         second = x / 2 * (1 - tanhm3**2) * (m1 + 2 * x**2 * m2 * m1)
         grad_out = (first + second) * grad_output
         return grad_out
+
 
 
 class MLP:
@@ -713,15 +715,10 @@ class Block:
     def forward(self, input: ArrayLike, train: bool) -> cp.ndarray:
 
         input = cp.asanyarray(input)
-
         x = self.ln_1.forward(input)
-
         x = self.attn.forward(x, train)[0]
-
         x = input + x
-
         residual = copy.deepcopy(x)
-
         x = self.ln_2.forward(x)
         x = self.mlp.forward(x, train)
         x = residual + x
