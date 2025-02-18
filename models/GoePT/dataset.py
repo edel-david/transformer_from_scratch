@@ -90,6 +90,20 @@ class Dataset:
                         self.sliced_tracks[genre].append(track[i : i + context_length])
         return self.sliced_tracks
 
+    def get_batch_from_track(self, track: Track, context_length, batch_size, data_dir="data"):
+        tmem = track.get_memmap(data_dir=data_dir)
+        selected_slices = []
+        for _ in range(batch_size):
+            selected_slice_idx = np.random.randint(len(tmem) - context_length)
+            t = list(tmem[selected_slice_idx : selected_slice_idx + context_length])
+            t[0] = 3  # 3 is the genre token
+            selected_slices.append(t)
+
+        x = np.stack(selected_slices)
+        y = np.full(batch_size, self.genre_to_idx(track.genre))
+
+        return x, y
+
     def get_batch_from_slices(self, batch_size, rng):
 
         selected_slices = []
