@@ -16,12 +16,12 @@ class Track:
             self.hash + suffix,
         )
 
-    def exists(self):
-        return os.path.exists(self.get_path())
+    def exists(self, data_dir="data"):
+        return os.path.exists(self.get_path(data_dir=data_dir))
 
-    def get_memmap(self):
+    def get_memmap(self, data_dir="data"):
         if self.memmap is None:
-            self.memmap = np.memmap(self.get_path(), dtype=np.uint16, mode="r")
+            self.memmap = np.memmap(self.get_path(data_dir=data_dir), dtype=np.uint16, mode="r")
         return self.memmap
 
 
@@ -60,12 +60,13 @@ class Dataset:
             ):
                 if file.endswith(".bin"):
                     track = Track(file[:-4], genre, name)
-                    if track.exists():
+                    if track.exists(data_dir=data_dir):
                         self.tracks[genre].append(track)
                     else:
-                        raise FileNotFoundError(f"Tokenized file {file} not found")
+                        print(f"File {file} not found")
+                        #raise FileNotFoundError(f"Tokenized file {file} not found")
         
-        self.get_slices(context_length=context_length)
+        self.get_slices(context_length=context_length, data_dir=data_dir)
         self.genre_probabilities = np.array(
             [len(self.sliced_tracks[genre]) for genre in self.sliced_tracks.keys()]
         )
@@ -76,13 +77,13 @@ class Dataset:
     def genre_to_idx(self, genre):
         return self._genres_to_idx[genre]
 
-    def get_slices(self, context_length):
+    def get_slices(self, context_length, data_dir="data"):
         if self.sliced_tracks is None:
             self.sliced_tracks = {}
             for genre in self.genres:
                 self.sliced_tracks[genre] = []
                 for track in self.tracks[genre]:
-                    track = track.get_memmap()
+                    track = track.get_memmap(data_dir=data_dir)
                     for i in range(
                         0, len(track) - context_length, context_length // 2
                     ):  # overlap of 50%
