@@ -8,10 +8,16 @@ This folder contains the main code.
 - `train.py` is used for training. Learning rate, batch size, ... can be configured trough command line arguments (see `run.sh` for an example).
 - `model.py` and `layers.py` contain the main code of the transformer
 - `dataset.py` contains the relevant code for loading and handling the tokenized midi data
+
+### `models/tokenizers/`
+- `midi_tokenizer.json` contains the vocabulary of the tokenized midi files
   
 ### `utils/`
 - `prepare_dataset.ipynb` was used to clean up the dataset and split it into train, validation and test sets
+- `generate_midiGenre_tokenizer.py` was used to generate the tokenizer and tokenize the dataset
+- `decode_tokenizer_midi.py` was used to ensure correct encoding
 - `test_model.ipynb` was used to test and plot the accuracy of the trained model
+- 
 
 ### `data/`
 This folder contains all relevant data for training, including
