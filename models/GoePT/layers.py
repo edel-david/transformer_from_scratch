@@ -327,7 +327,7 @@ class LayerNorm:
         self.grad_weight = (grad_upstream * self.output).sum((0,1))
         delnorm = grad_upstream * self.weight
         grad_out = delnorm - delnorm.mean(self.axis,keepdims=True)-self.output * (delnorm * self.output).mean(self.axis,keepdims=True)
-        grad_out= grad_out * self.stddev_inv
+        grad_out = grad_out * self.stddev_inv
         return grad_out
 
     def update(self):
