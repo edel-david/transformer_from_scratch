@@ -314,7 +314,7 @@ class LayerNorm:
             axis=self.axis,
             keepdims=True,  # mean=mean
         )  # can we pass the mean to the var()?  YES (with newer numpy versions)!
-        # the var stays the same after centering. Usefull for gradient calculation (not really)
+        # the var stays the same after centering. Usefull for gradient calculation (not really because this backward function is fucking hard)
         x_centered = input_x - mean
         self.stddev_inv = 1 / cp.sqrt(var + self.eps)
 
@@ -569,7 +569,7 @@ class MultiHeadAttention:
         # v.shape: 16 x 6 x 256 x 64
         long_grad = self.attn_dropout.backward(long_grad)
         long_grad = self.softmax_attn.backward(long_grad)
-        # long_grad = cp.where(self.mask == 0, 0, long_grad)
+        # long_grad = cp.where(self.mask == 0, 0, long_grad)  # no masked MHA here!. Full MHA to allow free information flow
 
         long_grad = long_grad * (1 / cp.sqrt(self.depth))
         q_grad = long_grad @ self.k  # insert dimensions swaps

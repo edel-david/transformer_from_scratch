@@ -12,12 +12,9 @@ def cross_entropy_loss(y_pred: ArrayLike, y_true: ArrayLike) -> cp.ndarray:
     """
     y_pred = cp.clip(y_pred, eps, 1 - eps)
     # Make sure to not have log(0)
-    
+
+    # no softmax, because we applied it earlier, because we need the post_softmax for calculating the gradient of the loss
+
     # Compute cross entropy loss
-    # sm = Softmax(axis=-1)
-    # outputs = sm.forward(y_pred)
-
-    # no softmax, because idk it works better, don't ask me why
-
-    loss = -cp.sum(y_true * cp.log(y_pred)) / y_true.shape[0]
+    loss = -cp.sum(y_true * cp.log(y_pred)) / y_true.shape[0] # y_true.shape should be the batch size
     return loss

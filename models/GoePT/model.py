@@ -174,12 +174,10 @@ class GoePT:
         )  # pass the first token, the classification token, to the lm_head.
         #logits = self.lm_gelu.forward(logits)
         #logits = self.end_head.forward(logits)
-        logits = self.sm.forward(logits)
+        logits = self.sm.forward(logits) # calcualte softmax for cross_entropy_loss and compute_gradient.
         if (
             targets is not None
         ):  # branch on knowledge of right answer: If known, calculate loss. else only return logits.
-            # if we are given some desired targets also calculate the loss<
-            # in both cases, we only apply the lm_head to the first token.
             ic(logits.shape, targets.shape)
             logits_for_loss = logits.reshape(-1, logits.shape[-1])
             targets_for_loss = np.expand_dims(targets.reshape(-1), 1)
@@ -191,12 +189,14 @@ class GoePT:
         return logits, loss
 
     def backward(self, x):
-        #grad = self.end_head.backward(x)
-        #grad = self.lm_gelu.backward(grad)
-        grad = self.lm_head.backward(x) # change between x and grad
+        #x = self.end_head.backward(x) # this is disabled because we decided for a one layer head
+        #x = self.lm_gelu.backward(x)
+        grad = self.lm_head.backward(x)
         # here, place some zeros:
         upstream_grad_for_ln = cp.zeros((grad.shape[0],self.context_length,self.n_embd))
-        upstream_grad_for_ln[:,0,:]=grad.squeeze()
+        upstream_grad_for_ln[:,0,:]=grad.squeeze() # insert the gradient into the first position for each batch, 
+        # because only the first position (classification token) gets used for classification, so all the other gradients are 0
+        
         grad = self.transformer["ln_f"].backward(upstream_grad_for_ln)# very likely correct
         for block in reversed(self.transformer["h"]):
             grad = block.backward(grad)
