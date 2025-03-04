@@ -2,7 +2,6 @@ import csv
 from pathlib import Path
 import numpy as np
 from miditok import REMI, TokenizerConfig
-from miditok.utils import split_seq_in_subsequences
 
 
 # Hash-to-genre mapping from a CSV file
@@ -80,14 +79,12 @@ def process_dataset(
         genre = hash_to_genre[midi_hash]
         genre_token_str = f"GENRE_{genre}"
 
-        # Convert to integer ID from vocubulary
-        if genre_token_str not in tokenizer.vocab:
-            print(
-                f"Warning: genre token {genre_token_str} not found in vocab. Skipping."
-            )
-            continue
-
-        # genre_token_id = tokenizer.vocab[genre_token_str]
+        # # Convert to integer ID from vocubulary
+        # if genre_token_str not in tokenizer.vocab:
+        #     print(
+        #         f"Warning: genre token {genre_token_str} not found in vocab. Skipping."
+        #     )
+        #     continue
 
         # Tokenize MIDI file
         try:
@@ -99,13 +96,8 @@ def process_dataset(
                 err_file.write(error_message + "\n")
             continue
 
-        # chunked_sequences = split_seq_in_subsequences(
-        #     tokens_list, min_seq_len=max_seq_len - 10, max_seq_len=max_seq_len - 1
-        # )
-
         token_ids = np.array(tokens.ids, dtype=np.uint16)
 
-        # relative_path = midi_path.relative_to("../data/raw_files")
         filename = midi_path.stem + f".bin"
         tokenized_path = Path(output_dir, genre_token_str, filename)
         tokenized_path.parent.mkdir(parents=True, exist_ok=True)
@@ -119,18 +111,6 @@ def process_dataset(
                 "total_tokens": len(tokens.ids),
             }
         )
-
-        # tokens = tokens_list.ids
-        # # Insert genre token at the start
-        # tokens.insert(0, genre_token_id)
-
-        # train_data = np.array(tokens, dtype=np.uint16)
-
-        # relative_path = midi_path.relative_to("../data/raw_files")
-        # midi_tokenized_path = Path(output_dir, relative_path)
-        # midi_tokenized_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # train_data.tofile(midi_tokenized_path.with_suffix(".bin"))
 
     csv_output_path = Path(output_dir, f"{dataset_name}_token_length_summary.csv")
     with csv_output_path.open("w", newline="", encoding="utf-8") as csvfile:
@@ -198,21 +178,3 @@ if __name__ == "__main__":
         output_dir = Path(f"../data/tokenized/{dataset_name}")
         print(f"Processing {dataset_name} dataset with {len(paths)} files ...")
         process_dataset(paths, hash_to_genre, tokenizer, output_dir, dataset_name)
-
-
-# müssen warhscheinlich files noch in chunks bringen, dieselbe Größe wie die Context size?
-# Interferred das Classification Token mit dem Start-of-Sequence Token?
-# Bzw. was passiert, wenn es dann immer vorhanden ist beim ersten Chunk, aber bei den restlichen nicht?
-# Sollten wir sie dann für alle entfernen?
-# Was ist mit Chunks, die weniger Tokens enthalten als die Conxtext size?
-# Antwort: Werden nicht hinzugefügt, also gelöscht
-# Sollten sie einfach entfernt werden? Dann könnten wir es hier abfangen
-# Müssen noch die Implementierung im Model machen, sollte aber recht einfach sein
-# tokenizer notwendig, bzw. müssen wir ihn ersetzen durch unseren?
-# überlegen wie input übergeben werden soll, da sie ganze Datensätze zusammengefügt haben mit train.bin, val.bin, test.bin
-
-# Decoded Token sequence, wo die Token wieder Strings repräsentieren, kann mit anderem utils Programm gelesen werden
-
-# tokenizer noch trainieren mit BPE? Wird häufig empfohlen
-# tokenizer.train(vocab_size=10000, files_paths=midi_paths)
-# tokenizer.save(Path("../models/tokenizers/midi_tokenizer_trained.json"))
