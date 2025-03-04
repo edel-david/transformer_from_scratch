@@ -79,13 +79,6 @@ def process_dataset(
         genre = hash_to_genre[midi_hash]
         genre_token_str = f"GENRE_{genre}"
 
-        # # Convert to integer ID from vocubulary
-        # if genre_token_str not in tokenizer.vocab:
-        #     print(
-        #         f"Warning: genre token {genre_token_str} not found in vocab. Skipping."
-        #     )
-        #     continue
-
         # Tokenize MIDI file
         try:
             tokens = tokenizer.encode(midi_path)
