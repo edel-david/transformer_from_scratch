@@ -5,23 +5,18 @@ import argparse
 import wandb
 from functools import partial
 from collections import deque
-from types import NoneType
 import json
 import time
 import cupy as cp
 import numpy as np
 
 xp = cp
-n_genres = 2
+n_genres = 3
 n_blocks = 6
 n_embd = 204
 dropout = 0.08
 vocab_size = 483
-
-
-# context len gets passed by args for some reason
-
-# from sklearn.metrics import root_mean_squared_error
+# context len gets passed by args
 from rich.progress import Progress
 from rich.console import Console, Group
 from rich.live import Live
@@ -45,7 +40,7 @@ def compute_gradient(target, prediction, one_hot_lookup):
     target = xp.stack([one_hot_lookup[token] for token in target]).reshape(prediction.shape)
 
     grad = prediction - target
-    # grad = grad/np.prod(target.shape[:-1])
+    # grad = grad/np.prod(target.shape[:-1]) # we do divide by batch_size later
     return grad, target
 
 def get_log_output_table(log_output_buffer: deque) -> Table:
@@ -63,7 +58,6 @@ def get_log_output_table(log_output_buffer: deque) -> Table:
 
 
 def main():
-
     # Training settings
     parser = argparse.ArgumentParser(description="NanoGPT from scratch")
     parser.add_argument(
@@ -123,18 +117,15 @@ def main():
 
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
-    only_genres = ["rock", "classical", "pop"]
-    train_set = Dataset("train", context_length=args.context_length, uniform=True, only_genres=only_genres)
-    validation_set = Dataset("val", context_length=args.context_length, uniform=True, only_genres=only_genres)
-
-    train_set.get_slices(args.context_length)
-    validation_set.get_slices(args.context_length)
+    # only_genres = ["rock", "classical", "pop"] # pass this to both DataSet's constructors as keyword argument
+    train_set = Dataset("train", context_length=args.context_length, uniform=True)
+    validation_set = Dataset("val", context_length=args.context_length, uniform=True)
 
     n_genres = len(train_set.genres)
     assert len(train_set.genres) == len(validation_set.genres), "Different number of genres in train and validation set"
 
     wandb.init(
-        # mode="disabled",  # disable wandb
+        mode="disabled",  # disable wandb, comment out to enable
         # Set the project where this run will be logged
         project="tfs",
         # We pass a run name (otherwise it’ll be randomly assigned, like sunshine-lollypop-10)
@@ -143,7 +134,7 @@ def main():
         config={
             "learning_rate": args.lr,
             "architecture": "transformer",
-            "dataset": "goethe",
+            "dataset": "MMD",
             "epochs": args.epochs,
         },
     )
@@ -159,21 +150,13 @@ def main():
         lr=args.lr,
     )
 
-    # model.transformer["wte"].weight[3].fill(0) # this would deactivate the embedding token embedding
-    # model.transformer["wpe"].weight[0].fill(0)
+    # IF WE WANT TO CONTINUE FROM CHECKPOINT: (DONT FORGET SET_LR)
 
-    # state_dict = model.state_dict()
-    #with open(os.path.join(args.checkpoint_dir, 'goe_pt_iter_52.json'), mode='w', encoding='utf-8') as out_file:
-    #     json.dump(state_dict, out_file)
     #with open(os.path.join(args.checkpoint_dir, 'goe_pt_iter_52.json'), mode='r', encoding='utf-8') as in_file:
     #     state_dict = json.load(in_file)
     #state_dict['n_genres'] = 3
     #model = GoePT.from_state_dict(state_dict)
     # model.set_lr(5e-5)
-    # ic(model)
-    # exit()
-
-    # training loop
 
     # rng = xp.random.default_rng(args.seed)
     np_rng = np.random.default_rng(args.seed)
@@ -216,6 +199,7 @@ def main():
     val_runs_with_current_lr = 0
     wandb.log({"learning_rate": model.lr}, step=step)
     # with status_console.screen():
+    # training loop
     with Live(header_panel):
 
         while True:
@@ -268,7 +252,6 @@ def main():
                 losses_val = xp.zeros(args.eval_iters)
 
                 top1_correct = 0
-                top5_correct = 0
                 total_samples = args.eval_iters * args.batch_size
 
                 task_id = progress_step.add_task("Val loss evaluation")
@@ -291,15 +274,12 @@ def main():
 
                 loss_val_mean = losses_val.mean()
                 top1_accuracy = top1_correct / total_samples * 100
-                # top5_accuracy = top5_correct / total_samples * 100
                 all_val_losses.append(loss_val_mean.item())
                 wandb.log(
                     {
                         "val_loss": loss_val_mean.item(),
-                        #"val_top1_err": 1.0 - top1_accuracy,
-                        #"val_top5_err": 1.0 - top5_accuracy,
                         "val_top1_accuracy%": top1_accuracy,
-                        #"val_top5_accuracy%": top5_accuracy,
+                        #"val_top5_accuracy%": top5_accuracy, # removed, reimplement if training with many classes
                     },
                     step=step,
                 )

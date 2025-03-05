@@ -12,14 +12,10 @@
 import sys
 import math
 import copy
-from types import NoneType
 from typing import Union, Callable
 import wandb
-# from utils import log, log_one
 import numpy as np
 import cupy as cp
-
-# from numpy.typing import ArrayLike
 from icecream import ic
 from cupy.typing import ArrayLike
 
@@ -313,7 +309,7 @@ class LayerNorm:
             input_x,
             axis=self.axis,
             keepdims=True,  # mean=mean
-        )  # can we pass the mean to the var()?  YES (with newer numpy versions)!
+        )  # can we pass the mean to the var()?  YES (only with newer numpy versions)!
         # the var stays the same after centering. Usefull for gradient calculation (not really because this backward function is fucking hard)
         x_centered = input_x - mean
         self.stddev_inv = 1 / cp.sqrt(var + self.eps)
