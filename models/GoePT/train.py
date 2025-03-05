@@ -15,7 +15,7 @@ xp = cp
 n_genres = 2
 n_blocks = 6
 n_embd = 204
-dropout = 0.1
+dropout = 0.08
 vocab_size = 483
 
 
@@ -326,7 +326,7 @@ def main():
                     # check if we should decrease the learning rate
                     if len(all_val_losses) >= 5 and val_runs_with_current_lr > 4:
 
-                        if loss_val_mean.item() > all_val_losses[-2] and loss_val_mean.item() > all_val_losses[-3] and loss_val_mean.item() > all_val_losses[-4]:
+                        if (loss_val_mean.item() > all_val_losses[-2]) and (loss_val_mean.item() > all_val_losses[-3]) and (loss_val_mean.item() > all_val_losses[-4]):
                             model.set_lr(max( model.lr * 0.7,1e-5))
                             status.update(f"Decreased learning rate to {model.lr}")
                             val_runs_with_current_lr = 0
