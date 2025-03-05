@@ -24,6 +24,10 @@ This folder contains all relevant data for training, including
 - hashes of the tracks of test, validation and train sets (e.g. `train.csv`)
 - tokenized tracks (`data/tokenized`)
 
+The raw data of the MetaMIDI Dataset and the tokenized tracks are not included in the GitHub repository and can be downloaded from https://heibox.uni-heidelberg.de/d/eab8c88bc451498583e9/  
+Please don’t publish or distribute this data as this is a requirement by the authors of the dataset.  
+
 ### `checkpoints/`
 Includes checkpoints that can be used to run and test the model.
-E.g. `class_rock_pop_80percent.json` was trained on classical, rock and pop genres and had a validation accuracy of approximatly 80%.
+E.g. `class_rock_pop_80percent.json` was trained on classical, rock and pop genres and had a validation accuracy of approximatly 80%.  
+More checkpoints of trained models of different sizes can be found at https://heibox.uni-heidelberg.de/d/2a8347c573b94a97ba82/
