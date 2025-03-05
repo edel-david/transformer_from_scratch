@@ -103,6 +103,24 @@ class Dataset:
         y = np.full(batch_size, self.genre_to_idx(track.genre))
 
         return x, y
+    
+    def get_batches_from_track(self, track: Track, context_length, batch_size, data_dir="data"):
+        tmem = track.get_memmap(data_dir=data_dir)
+        batches = []
+        i = 0
+        while i < len(tmem) - context_length:
+            batch = []
+            for _ in range(batch_size):
+                t = list(tmem[i : i + context_length])
+                t[0] = 3
+                batch.append(t)
+                i += context_length // 2
+                if i >= len(tmem) - context_length:
+                    break
+            if len(batch) == batch_size:
+                batches.append(np.stack(batch))
+        
+        return batches
 
     def get_batch_from_slices(self, batch_size, rng):
 

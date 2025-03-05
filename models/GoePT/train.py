@@ -123,8 +123,9 @@ def main():
 
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
-    train_set = Dataset("train", context_length=args.context_length, uniform=True)
-    validation_set = Dataset("val", context_length=args.context_length, uniform=True)
+    only_genres = ["rock", "classical", "pop"]
+    train_set = Dataset("train", context_length=args.context_length, uniform=True, only_genres=only_genres)
+    validation_set = Dataset("val", context_length=args.context_length, uniform=True, only_genres=only_genres)
 
     train_set.get_slices(args.context_length)
     validation_set.get_slices(args.context_length)
@@ -162,11 +163,12 @@ def main():
     # model.transformer["wpe"].weight[0].fill(0)
 
     # state_dict = model.state_dict()
-    # with open(os.path.join(args.checkpoint_dir, 'test_checkpoint.json'), mode='w', encoding='utf-8') as out_file:
+    #with open(os.path.join(args.checkpoint_dir, 'goe_pt_iter_52.json'), mode='w', encoding='utf-8') as out_file:
     #     json.dump(state_dict, out_file)
-    # with open(os.path.join(args.checkpoint_dir, 'test.json'), mode='r', encoding='utf-8') as in_file:
+    #with open(os.path.join(args.checkpoint_dir, 'goe_pt_iter_52.json'), mode='r', encoding='utf-8') as in_file:
     #     state_dict = json.load(in_file)
-    # model = GoePT.from_state_dict(state_dict)
+    #state_dict['n_genres'] = 3
+    #model = GoePT.from_state_dict(state_dict)
     # model.set_lr(5e-5)
     # ic(model)
     # exit()
