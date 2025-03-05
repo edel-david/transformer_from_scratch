@@ -17,7 +17,6 @@ This folder contains the main code.
 - `generate_midiGenre_tokenizer.py` was used to generate the tokenizer and tokenize the dataset
 - `decode_tokenizer_midi.py` was used to ensure correct encoding
 - `test_model.ipynb` was used to test and plot the accuracy of the trained model
-- 
 
 ### `data/`
 This folder contains all relevant data for training, including
